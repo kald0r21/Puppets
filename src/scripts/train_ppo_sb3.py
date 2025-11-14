@@ -1,100 +1,134 @@
 # src/scripts/train_ppo_sb3.py
-# Wersja 5.3: Zwiększenie obciążenia GPU (więcej epok, większy batch)
+# Train RecurrentPPO or MaskablePPO on MicroWorldVisionEnv
 
-import argparse, os
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecMonitor
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
-from stable_baselines3.common.callbacks import StopTrainingOnNoModelImprovement
+import argparse, os, numpy as np
+from sb3_contrib.common.wrappers import ActionMasker
+from sb3_contrib import MaskablePPO, RecurrentPPO
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.logger import configure
-
-import torch as th
-import torch.nn as nn
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 from src.micro_world.env_gym import MicroWorldVisionEnv
 from src.scripts.custom_policy import SmallCNN
+from src.scripts.micro_world_vision import ACTIONS
 
-# Definiowanie ścieżek absolutnych
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 DEFAULT_TB_LOG_DIR = os.path.join(PROJECT_ROOT, "runs", "micro_world_ppo")
 DEFAULT_CKPT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 
 
-# ---------- Env factory ----------
-def make_env(seed=123, rank=0):
+def mask_fn(env: MicroWorldVisionEnv):
+    """Return boolean mask of valid actions at the current state."""
+    y, x = env.agent.y, env.agent.x
+    mask = np.ones(len(ACTIONS), dtype=bool)
+    for i, (dy, dx) in enumerate(ACTIONS):
+        ny, nx = y + dy, x + dx
+        if not (0 <= ny < env.world.h and 0 <= nx < env.world.w):
+            mask[i] = False
+        elif env.world.W[ny, nx] > 0:
+            mask[i] = False
+    return mask
+
+
+def make_env(seed=123, rank=0, use_masking=False):
     def _thunk():
-        from src.micro_world.env_gym import MicroWorldVisionEnv
         env = MicroWorldVisionEnv(seed=seed + rank, max_steps=5000, render_mode=None)
+        if use_masking:
+            env = ActionMasker(env, mask_fn)
         return env
 
     return _thunk
 
 
-# ---------- Train ----------
-def train(timesteps: int, tb_logdir: str, ckpt_dir: str, seed: int):
-    num_cpu = 6
-    print(f"Using {num_cpu} CPU processes for parallel training.")
+def train(timesteps: int, tb_logdir: str, ckpt_dir: str, seed: int,
+          use_recurrent: bool = True, use_masking: bool = False):
+    """
+    Train either RecurrentPPO or MaskablePPO
 
-    env = SubprocVecEnv([make_env(seed=seed, rank=i) for i in range(num_cpu)])
+    Args:
+        timesteps: Total timesteps to train
+        tb_logdir: TensorBoard log directory
+        ckpt_dir: Checkpoint directory
+        seed: Random seed
+        use_recurrent: If True, use RecurrentPPO; if False, use MaskablePPO
+        use_masking: If True, use action masking (only for MaskablePPO)
+    """
+    n_envs = 6
+    env = SubprocVecEnv([make_env(seed=seed, rank=i, use_masking=use_masking) for i in range(n_envs)])
     env = VecMonitor(env)
 
-    eval_env = DummyVecEnv([make_env(seed=seed + 1000)])
+    eval_env = DummyVecEnv([make_env(seed=seed + 1000, use_masking=use_masking)])
     eval_env = VecMonitor(eval_env)
 
-    policy_kwargs = {
-        "features_extractor_class": SmallCNN,
-        "features_extractor_kwargs": {"features_dim": 256},
-        "net_arch": dict(pi=[256, 128], vf=[256, 128]),
-    }
+    # Policy kwargs for RecurrentPPO
+    if use_recurrent:
+        policy_kwargs = dict(
+            features_extractor_class=SmallCNN,
+            features_extractor_kwargs=dict(features_dim=256),
+            net_arch=dict(pi=[256, 128], vf=[256, 128]),
+            enable_critic_lstm=True,  # LSTM dla krytyka
+            lstm_hidden_size=256,  # Rozmiar LSTM
+        )
 
-    model = PPO(
-        policy="CnnPolicy",
-        env=env,
-        learning_rate=3e-4,
-        n_steps=8192,
+        model = RecurrentPPO(
+            policy="CnnLstmPolicy",
+            env=env,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=512,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            ent_coef=0.02,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            tensorboard_log=tb_logdir,
+            seed=seed,
+            policy_kwargs=policy_kwargs,
+            verbose=1,
+        )
+        model_name = "recurrent_ppo"
+    else:
+        # Policy kwargs for MaskablePPO (bez LSTM)
+        policy_kwargs = dict(
+            features_extractor_class=SmallCNN,
+            features_extractor_kwargs=dict(features_dim=256),
+            net_arch=dict(pi=[256, 128], vf=[256, 128])
+        )
 
-        # --- ZMIANY TUTAJ ---
-        batch_size=512,  # Było 256. Dajemy GPU większe porcje.
-        n_epochs=10,  # Było 4. GPU trenuje dłużej na tych samych danych.
-        # --- KONIEC ZMIAN ---
-
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        clip_range_vf=None,
-        normalize_advantage=True,
-        ent_coef=0.03,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        tensorboard_log=tb_logdir,
-        seed=seed,
-        verbose=1,
-        policy_kwargs=policy_kwargs,
-    )
+        model = MaskablePPO(
+            policy="CnnPolicy",
+            env=env,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=512,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            ent_coef=0.02,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            tensorboard_log=tb_logdir,
+            seed=seed,
+            policy_kwargs=policy_kwargs,
+            verbose=1,
+        )
+        model_name = "maskable_ppo" if use_masking else "ppo"
 
     new_logger = configure(tb_logdir, ["stdout", "tensorboard"])
     model.set_logger(new_logger)
 
-    print(f"Ensuring checkpoint directory exists at: {ckpt_dir}")
     os.makedirs(ckpt_dir, exist_ok=True)
-
-    # Poprawne obliczanie częstotliwości (zgodnie z Twoją sugestią)
     save_freq_total = 50_000
-    save_freq_per_env = max(1, save_freq_total // num_cpu)  # 50_000 / 6 ≈ 8333
-
+    save_freq_per_env = max(1, save_freq_total // n_envs)
     eval_freq_total = 10_000
-    eval_freq_per_env = max(1, eval_freq_total // num_cpu)  # 10_000 / 6 ≈ 1666
-
-    print(f"Checkpoint save freq per env: {save_freq_per_env} (Total steps: ~{save_freq_per_env * num_cpu})")
-    print(f"Evaluation freq per env: {eval_freq_per_env} (Total steps: ~{eval_freq_per_env * num_cpu})")
+    eval_freq_per_env = max(1, eval_freq_total // n_envs)
 
     checkpoint_callback = CheckpointCallback(
         save_freq=save_freq_per_env,
         save_path=ckpt_dir,
-        name_prefix="ppo_mw",
+        name_prefix=f"{model_name}_mw",
         verbose=1
     )
 
@@ -112,121 +146,40 @@ def train(timesteps: int, tb_logdir: str, ckpt_dir: str, seed: int):
         deterministic=True,
         render=False,
         n_eval_episodes=5,
-        callback_after_eval=stop_train_callback
+        callback_after_eval=stop_train_callback,
     )
 
-    print(f"\n{'=' * 60}")
-    print(f"  Starting PPO Training")
-    print(f"{'=' * 60}")
-    print(f"Total timesteps:     {timesteps:,}")
-    print(f"Entropy coef:        {model.ent_coef}")
-    print(f"Tensorboard:         {tb_logdir}")
-    print(f"Checkpoints:         {ckpt_dir}")
-    print(f"Device:              {model.device}")
-    print(f"{'=' * 60}\n")
-
-    print("TIPS:")
-    print("- Watch ep_rew_mean in tensorboard - should increase")
-    print("- Watch eval/mean_ep_length - should increase above 1000")
-    print()
-
-    callback_list = [checkpoint_callback, eval_callback]
-
+    print(f"Starting {model_name.upper()} training...")
     model.learn(
         total_timesteps=timesteps,
-        callback=callback_list,
+        callback=[checkpoint_callback, eval_callback],
         progress_bar=True
     )
 
-    final_path = os.path.join(ckpt_dir, "ppo_mw_final.zip")
+    final_path = os.path.join(ckpt_dir, f"{model_name}_mw_final.zip")
     model.save(final_path)
-    print(f"\n✓ Training complete!")
-    print(f"✓ Final model: {final_path}")
-    print(f"✓ Best model:  {ckpt_dir}/best_model.zip")
+    print(f"✓ Training complete! Final model: {final_path}")
 
 
-# ---------- Play ----------
-def play(model_path: str, episodes: int = 5, render_vis: bool = False):
-    print(f"Loading model from: {model_path}")
-
-    if render_vis:
-        print("Visual rendering not implemented in play mode. Use viz_realtime.py instead:")
-        print(f"  python -m src.scripts.viz_realtime --model {model_path}")
-        return
-
-    if not os.path.isabs(model_path) and not model_path.startswith("checkpoints"):
-        model_path = os.path.join(DEFAULT_CKPT_DIR, model_path)
-
-    from src.micro_world.env_gym import MicroWorldVisionEnv
-    env = MicroWorldVisionEnv(render_mode="ansi")
-
-    policy_kwargs = {
-        "features_extractor_class": SmallCNN,
-        "features_extractor_kwargs": {"features_dim": 256},
-        "net_arch": dict(pi=[256, 128], vf=[256, 128]),
-    }
-    model = PPO.load(model_path, policy_kwargs=policy_kwargs)
-
-    total_rewards = []
-    total_scores = []
-
-    for ep in range(episodes):
-        obs, info = env.reset()
-        done, trunc = False, False
-        ep_r = 0.0
-        step = 0
-
-        print(f"\n{'=' * 50}")
-        print(f"Episode {ep + 1}/{episodes}")
-        print(f"{'=' * 50}")
-
-        while not (done or trunc) and step < 5000:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, r, done, trunc, info = env.step(action)
-            ep_r += r
-            step += 1
-
-            if step % 500 == 0:
-                print(f"  Step {step:4d}: E={info['energy']:.2f}, score={info['score']:.0f}, reward_sum={ep_r:.2f}")
-
-        total_rewards.append(ep_r)
-        total_scores.append(info['score'])
-
-        print(f"\n✓ Episode {ep + 1} results:")
-        print(f"  Total reward:    {ep_r:.3f}")
-        print(f"  Steps survived:  {step}")
-        print(f"  Final energy:    {info['energy']:.2f}")
-        print(f"  Final score:     {info['score']:.0f}")
-        print(f"  Terminated:      {done}")
-        print(f"  Truncated:       {trunc}")
-
-    env.close()
-
-    print(f"\n{'=' * 50}")
-    print(f"Summary over {episodes} episodes:")
-    print(f"{'=' * 50}")
-    print(f"  Avg reward:  {sum(total_rewards) / len(total_rewards):.3f}")
-    print(f"  Avg score:   {sum(total_scores) / len(total_scores):.1f}")
-    print(f"  Max score:   {max(total_scores):.0f}")
-    print(f"  Min score:   {min(total_scores):.0f}")
-
-
-# ---------- CLI ----------
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
-
-    parser.add_argument("--timesteps", type=int, default=500_000,
-                        help="Total training timesteps (500k = ~30min, 2M = ~2h)")
+    parser.add_argument("--timesteps", type=int, default=500_000)
     parser.add_argument("--tb", type=str, default=DEFAULT_TB_LOG_DIR)
     parser.add_argument("--ckpt", type=str, default=DEFAULT_CKPT_DIR)
-
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--play", type=str, default=None, help="Path to .zip model to test")
-    parser.add_argument("--episodes", type=int, default=5, help="Number of test episodes")
+    parser.add_argument("--recurrent", action="store_true",
+                        help="Use RecurrentPPO instead of MaskablePPO")
+    parser.add_argument("--no-masking", action="store_true",
+                        help="Disable action masking (only for non-recurrent)")
     args = parser.parse_args()
 
-    if args.play:
-        play(args.play, episodes=args.episodes)
-    else:
-        train(args.timesteps, args.tb, args.ckpt, args.seed)
+    use_masking = not args.no_masking and not args.recurrent
+
+    train(
+        args.timesteps,
+        args.tb,
+        args.ckpt,
+        args.seed,
+        use_recurrent=args.recurrent,
+        use_masking=use_masking
+    )

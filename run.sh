@@ -12,6 +12,16 @@ echo ""
 echo "2. TRENING PPO (Stable-Baselines3):"
 echo "   python -m src.scripts.train_ppo_sb3 --timesteps 500000"
 echo "   python -m src.scripts.train_ppo_sb3 --timesteps 500000 --tb ./runs/exp1 --ckpt ./checkpoints/exp1"
+
+# RecurrentPPO (z pamięcią LSTM):
+python -m src.scripts.train_ppo_sb3 --timesteps 1000000 --recurrent
+
+# MaskablePPO (z maskowaniem akcji):
+python -m src.scripts.train_ppo_sb3 --timesteps 1000000
+
+# Zwykłe PPO:
+python -m src.scripts.train_ppo_sb3 --timesteps 1000000 --no-masking
+
 echo ""
 
 echo "3. TESTOWANIE WYTRENOWANEGO MODELU:"
