@@ -1,9 +1,0 @@
-
-numpy>=1.24
-torch~=2.5.1+cu121
-gymnasium>=0.29
-stable-baselines3[extra]>=2.3.0
-tensorboard>=2.12
-
-pygame~=2.6.1
-stable_baselines3~=2.7.0
