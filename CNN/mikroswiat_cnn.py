@@ -3,12 +3,11 @@ import random
 import pygame
 import math
 import os
-import config_cnn as cfg  # <-- Importujemy config v26
+from CNN import config_cnn as cfg
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from copy import deepcopy
 
 # --- DEFINICJA URZĄDZENIA (GPU/CPU) ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
