@@ -26,7 +26,7 @@ KILL_LICENSE_LEVEL = 2
 KILL_COST_PELLETS = 1
 
 # --- 4. USTAWIENIA UCZENIA (WSPÓLNE) ---
-NUM_EPISODES = 5000
+NUM_EPISODES = 2000
 MAX_TURNS_PER_EPISODE = 1000
 GAMMA = 0.99
 
@@ -65,3 +65,9 @@ COLOR_AGENT = (0, 150, 255)
 COLOR_PREDATOR = (255, 0, 0)
 COLOR_GRID = (40, 40, 40)
 COLOR_WALL = (100, 100, 100)
+
+# --- 10. USTAWIENIA EARLY STOPPING ---
+EARLY_STOPPING_ENABLED = True
+EARLY_STOPPING_PATIENCE = 50      # Ile epizodów czekamy na poprawę rekordu
+EARLY_STOPPING_WINDOW = 50        # Z ilu ostatnich epizodów liczymy średnią (wygładzanie wykresu)
+EARLY_STOPPING_MIN_EPISODES = 100 # Minimalna liczba epizodów przed włączeniem sprawdzania

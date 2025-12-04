@@ -21,54 +21,48 @@ print(f"Używane urządzenie do obliczeń sieci neuronowej: {device}")
 # --- WERSJA V26: "Precyzyjny Mózg CNN" (Bez Max Pooling) ---
 #
 class NeuralNetwork(nn.Module):
-    """Implementuje głęboką sieć CNN bez utraty precyzji (bez poolingu)."""
+    """
+    Wersja Precyzyjna (No-Pooling):
+    Zachowuje wymiary przestrzenne (7x7) przez warstwy konwolucyjne,
+    co pozwala agentowi dokładnie wiedzieć, w której kratce jest jedzenie/wróg.
+    """
 
     def __init__(self, map_size, num_channels, num_actions):
         super(NeuralNetwork, self).__init__()
+        self.map_size = map_size  # np. 7 (promień 3 => 3+1+3)
 
-        self.map_size = map_size  # np. 7
-
-        # --- CZĘŚĆ KONWOLUCYJNA (OCZY) - 3 warstwy ---
-        # Wejście: (3, 7, 7)
+        # 1. Konwolucja (Oczy): Wyciąganie cech bez pomniejszania mapy
+        # Padding=1 utrzymuje rozmiar przy kernelu 3x3
         self.conv1 = nn.Conv2d(in_channels=num_channels, out_channels=16, kernel_size=3, padding=1)
-        # (16, 7, 7)
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
-        # (32, 7, 7)
-        # --- USUNIĘTO WARSTWĘ POOLINGU ---
         self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
-        # (64, 7, 7)
 
-        # Obliczamy rozmiar spłaszczonego wyjścia
-        self.flattened_size = 64 * self.map_size * self.map_size  # 64 * 7 * 7 = 3136
+        # Obliczamy rozmiar po spłaszczeniu (Flatten)
+        # Ponieważ nie ma Poolingu, rozmiar to: kanały * szer * wys
+        self.flattened_size = 64 * self.map_size * self.map_size
 
-        # --- CZĘŚĆ LINIOWA (MÓZG) ---
-        # Warstwa 1: (Wyjście z CNN + 1 (energia))
-        self.fc1 = nn.Linear(self.flattened_size + 1, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc_out = nn.Linear(32, num_actions)
+        # 2. Część Decyzyjna (Mózg): Łączy wizję ze stanem (energią)
+        # +1 to wejście na informację o energii
+        self.fc1 = nn.Linear(self.flattened_size + 1, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc_out = nn.Linear(128, num_actions)
 
     def forward(self, vision_input, state_input):
-        """Propagacja w przód dla głębszej sieci (bez poolingu)."""
+        # A. Przetwarzanie obrazu
+        x = F.relu(self.conv1(vision_input))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
 
-        # 1. Przetwórz "wizję" (mapę) przez CNN
-        x_vision = F.relu(self.conv1(vision_input))
-        x_vision = F.relu(self.conv2(x_vision))
-        # --- USUNIĘTO `pool1` ---
-        x_vision = F.relu(self.conv3(x_vision))
+        # Spłaszczenie (z 3D na 1D)
+        x = torch.flatten(x, 1)
 
-        # 2. Spłaszcz wynik z CNN
-        x_vision = torch.flatten(x_vision, 1)  # (Batch, 3136)
+        # B. Dołączenie stanu (energii)
+        # state_input musi mieć wymiar (Batch, 1)
+        x = torch.cat((x, state_input), dim=1)
 
-        # 3. Połącz spłaszczoną wizję ze stanem (energią)
-        x_combined = torch.cat((x_vision, state_input), dim=1)
-
-        # 4. Przetwórz połączone dane przez MLP
-        x = F.relu(self.fc1(x_combined))
+        # C. Decyzja
+        x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-
-        # 5. Zwróć ostateczne akcje (logity)
         return self.fc_out(x)
 
     def get_action(self, vision_input, state_input):

@@ -3,7 +3,8 @@ import torch
 import os
 import re
 import numpy as np
-import config_dqn as cfg  # Upewnij się, że to config od koewolucji (v35+)
+import random  # <--- DODANO
+import config_dqn as cfg
 from mikroswiat_dqn import DQNNet, AgentEntity, World, draw_world, get_agent_state, get_predator_state, device
 
 
@@ -105,20 +106,30 @@ def run_observation():
                     if event.key == pygame.K_r:  # Klawisz R do restartu
                         episode_over = True
 
-                        # --- LOGIKA AGENTA (BEZ LOSOWOŚCI) ---
+            # --- ZMODYFIKOWANA LOGIKA AGENTA (Z ODROBINĄ LOSOWOŚCI) ---
+            # Dodajemy 5% szansy na losowy ruch, żeby wybić agenta z pętli "stania pod ścianą"
             state_agent = get_agent_state(agent_entity, world)
-            with torch.no_grad():
-                state_tensor = torch.tensor(state_agent, dtype=torch.float32).unsqueeze(0).to(device)
-                action_agent = agent_brain(state_tensor).max(1)[1].item()
 
-            # --- LOGIKA DRAPIEŻNIKÓW (BEZ LOSOWOŚCI) ---
+            if random.random() < 0.05:
+                action_agent = random.randint(0, 4)
+            else:
+                with torch.no_grad():
+                    state_tensor = torch.tensor(state_agent, dtype=torch.float32).unsqueeze(0).to(device)
+                    action_agent = agent_brain(state_tensor).max(1)[1].item()
+
+            # --- ZMODYFIKOWANA LOGIKA DRAPIEŻNIKÓW (Z ODROBINĄ LOSOWOŚCI) ---
             predator_actions = {}
             for p in world.get_alive_predators():
                 state_pred = get_predator_state(p, world)
-                with torch.no_grad():
-                    state_tensor = torch.tensor(state_pred, dtype=torch.float32).unsqueeze(0).to(device)
-                    action_pred = predator_brain(state_tensor).max(1)[1].item()
-                    predator_actions[p.id] = action_pred
+
+                if random.random() < 0.05:
+                    action_pred = random.randint(0, 4)
+                else:
+                    with torch.no_grad():
+                        state_tensor = torch.tensor(state_pred, dtype=torch.float32).unsqueeze(0).to(device)
+                        action_pred = predator_brain(state_tensor).max(1)[1].item()
+
+                predator_actions[p.id] = action_pred
 
             # --- AKTUALIZACJA ŚWIATA ---
             world.move_entity(agent_entity, action_agent)
