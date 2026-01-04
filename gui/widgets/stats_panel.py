@@ -114,3 +114,8 @@ class StatsPanel(QWidget):
             self.kills_label.setVisible(True)
         else:
             self.kills_label.setVisible(False)
+
+    def update_language(self):
+        """Update widget text for new language."""
+        # Stub for language updates
+        pass

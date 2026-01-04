@@ -107,3 +107,8 @@ class ChartWidget(QWidget):
         if PYQTGRAPH_AVAILABLE:
             self.best_line.setData([], [])
             self.avg_line.setData([], [])
+
+    def update_language(self):
+        """Update widget text for new language."""
+        # Stub for language updates
+        pass
