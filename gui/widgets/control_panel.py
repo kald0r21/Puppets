@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QSpinBox, QDoubleSpinBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from core.localization import tr
+
 
 class ControlPanel(QWidget):
     """
@@ -33,7 +35,7 @@ class ControlPanel(QWidget):
         layout = QVBoxLayout(self)
 
         # Method selection
-        method_group = QGroupBox("Method")
+        self.method_group = QGroupBox(tr('control.method'))
         method_layout = QVBoxLayout()
 
         self.method_combo = QComboBox()
@@ -41,32 +43,32 @@ class ControlPanel(QWidget):
         self.method_combo.currentTextChanged.connect(self.on_method_changed)
         method_layout.addWidget(self.method_combo)
 
-        method_group.setLayout(method_layout)
-        layout.addWidget(method_group)
+        self.method_group.setLayout(method_layout)
+        layout.addWidget(self.method_group)
 
         # Control buttons
-        controls_group = QGroupBox("Controls")
+        self.controls_group = QGroupBox(tr('control.controls'))
         controls_layout = QVBoxLayout()
 
-        self.start_button = QPushButton("▶ Start")
+        self.start_button = QPushButton(tr('button.start'))
         self.start_button.clicked.connect(self.start_clicked.emit)
         controls_layout.addWidget(self.start_button)
 
-        self.pause_button = QPushButton("⏸ Pause")
+        self.pause_button = QPushButton(tr('button.pause'))
         self.pause_button.clicked.connect(self.pause_clicked.emit)
         self.pause_button.setEnabled(False)
         controls_layout.addWidget(self.pause_button)
 
-        self.stop_button = QPushButton("⏹ Stop")
+        self.stop_button = QPushButton(tr('button.stop'))
         self.stop_button.clicked.connect(self.stop_clicked.emit)
         self.stop_button.setEnabled(False)
         controls_layout.addWidget(self.stop_button)
 
-        controls_group.setLayout(controls_layout)
-        layout.addWidget(controls_group)
+        self.controls_group.setLayout(controls_layout)
+        layout.addWidget(self.controls_group)
 
         # Speed control
-        speed_group = QGroupBox("Speed")
+        self.speed_group = QGroupBox(tr('control.speed'))
         speed_layout = QVBoxLayout()
 
         self.speed_slider = QSlider(Qt.Horizontal)
@@ -76,15 +78,15 @@ class ControlPanel(QWidget):
         self.speed_slider.valueChanged.connect(self.on_speed_changed)
         speed_layout.addWidget(self.speed_slider)
 
-        self.speed_label = QLabel("60 FPS")
+        self.speed_label = QLabel(tr('control.fps', value=60))
         self.speed_label.setAlignment(Qt.AlignCenter)
         speed_layout.addWidget(self.speed_label)
 
-        speed_group.setLayout(speed_layout)
-        layout.addWidget(speed_group)
+        self.speed_group.setLayout(speed_layout)
+        layout.addWidget(self.speed_group)
 
         # Parameters (will be populated dynamically)
-        self.params_group = QGroupBox("Parameters")
+        self.params_group = QGroupBox(tr('control.parameters'))
         self.params_layout = QVBoxLayout()
         self.params_group.setLayout(self.params_layout)
         layout.addWidget(self.params_group)
@@ -133,16 +135,9 @@ class ControlPanel(QWidget):
         clear_layout(self.params_layout)
 
         if not self.current_config:
-            print("No config to update")
             return
 
         method = self.current_config['method'].lower()
-
-        # Debug print
-        print(f"Updating parameters for method: {method}")
-        print(f"Config keys: {list(self.current_config.keys())}")
-        if method in self.current_config:
-            print(f"Method config keys: {list(self.current_config[method].keys())}")
 
         # Add key parameters
         if method in self.current_config:
@@ -150,26 +145,24 @@ class ControlPanel(QWidget):
 
             # Population/Episodes
             if 'population_size' in method_config:
-                self.add_param_spinbox("Population", 'population_size', method_config, 10, 1000)
+                self.add_param_spinbox(tr('params.population'), 'population_size', method_config, 10, 1000)
             elif 'num_episodes' in method_config:
-                self.add_param_spinbox("Episodes", 'num_episodes', method_config, 100, 10000)
+                self.add_param_spinbox(tr('params.episodes'), 'num_episodes', method_config, 100, 10000)
 
             # Generations
             if 'num_generations' in method_config:
-                self.add_param_spinbox("Generations", 'num_generations', method_config, 10, 1000)
+                self.add_param_spinbox(tr('params.generations'), 'num_generations', method_config, 10, 1000)
 
             # Learning rate (DQN)
             if 'agent_learning_rate' in method_config:
-                self.add_param_doublespinbox("Learning Rate", 'agent_learning_rate', method_config, 0.0001, 0.1)
+                self.add_param_doublespinbox(tr('params.learning_rate'), 'agent_learning_rate', method_config, 0.0001, 0.1)
 
         # Force layout update
         self.params_layout.update()
         self.params_group.updateGeometry()
-        print(f"Added {self.params_layout.count()} parameter widgets")
 
     def add_param_spinbox(self, label, key, config, min_val, max_val):
         """Add integer parameter spinbox."""
-        print(f"Adding spinbox: {label} = {config.get(key, min_val)}")
         row = QHBoxLayout()
         row.addWidget(QLabel(f"{label}:"))
 
@@ -203,7 +196,7 @@ class ControlPanel(QWidget):
 
     def on_speed_changed(self, value):
         """Handle speed slider change."""
-        self.speed_label.setText(f"{value} FPS")
+        self.speed_label.setText(tr('control.fps', value=value))
         self.speed_changed.emit(value)
 
     def on_param_changed(self, key, value):
@@ -235,13 +228,26 @@ class ControlPanel(QWidget):
         """
         self.is_paused = paused
         if paused:
-            self.pause_button.setText("▶ Resume")
+            self.pause_button.setText(tr('button.resume'))
         else:
-            self.pause_button.setText("⏸ Pause")
+            self.pause_button.setText(tr('button.pause'))
 
     def update_language(self):
         """Update widget text for new language."""
         # Update group box titles
-        # Note: This is a simplified implementation
-        # In a full implementation, we would use translations for all labels
-        pass
+        self.method_group.setTitle(tr('control.method'))
+        self.controls_group.setTitle(tr('control.controls'))
+        self.speed_group.setTitle(tr('control.speed'))
+        self.params_group.setTitle(tr('control.parameters'))
+
+        # Update buttons
+        self.start_button.setText(tr('button.start'))
+        if self.is_paused:
+            self.pause_button.setText(tr('button.resume'))
+        else:
+            self.pause_button.setText(tr('button.pause'))
+        self.stop_button.setText(tr('button.stop'))
+
+        # Update speed label
+        current_fps = self.speed_slider.value()
+        self.speed_label.setText(tr('control.fps', value=current_fps))
