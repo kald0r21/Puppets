@@ -114,23 +114,35 @@ class ControlPanel(QWidget):
 
     def update_parameters(self):
         """Update parameter widgets based on current config."""
-        # Clear existing widgets and layouts
-        while self.params_layout.count():
-            item = self.params_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                # Clear child layout
-                while item.layout().count():
-                    child = item.layout().takeAt(0)
-                    if child.widget():
-                        child.widget().deleteLater()
-                item.layout().deleteLater()
+        # Clear existing widgets and layouts more aggressively
+        def clear_layout(layout):
+            """Recursively clear a layout."""
+            if layout is None:
+                return
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    child_layout = item.layout()
+                    if child_layout:
+                        clear_layout(child_layout)
+
+        clear_layout(self.params_layout)
 
         if not self.current_config:
+            print("No config to update")
             return
 
         method = self.current_config['method'].lower()
+
+        # Debug print
+        print(f"Updating parameters for method: {method}")
+        print(f"Config keys: {list(self.current_config.keys())}")
+        if method in self.current_config:
+            print(f"Method config keys: {list(self.current_config[method].keys())}")
 
         # Add key parameters
         if method in self.current_config:
@@ -150,8 +162,14 @@ class ControlPanel(QWidget):
             if 'agent_learning_rate' in method_config:
                 self.add_param_doublespinbox("Learning Rate", 'agent_learning_rate', method_config, 0.0001, 0.1)
 
+        # Force layout update
+        self.params_layout.update()
+        self.params_group.updateGeometry()
+        print(f"Added {self.params_layout.count()} parameter widgets")
+
     def add_param_spinbox(self, label, key, config, min_val, max_val):
         """Add integer parameter spinbox."""
+        print(f"Adding spinbox: {label} = {config.get(key, min_val)}")
         row = QHBoxLayout()
         row.addWidget(QLabel(f"{label}:"))
 
