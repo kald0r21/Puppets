@@ -145,6 +145,11 @@ class MainWindow(QMainWindow):
         params_action.triggered.connect(self.on_edit_parameters)
         tools_menu.addAction(params_action)
 
+        test_model_action = QAction("&Test Model", self)
+        test_model_action.setShortcut(Qt.Key_F3)
+        test_model_action.triggered.connect(self.on_test_model)
+        tools_menu.addAction(test_model_action)
+
         tools_menu.addSeparator()
 
         export_action = QAction("&Export Data", self)
@@ -213,8 +218,10 @@ class MainWindow(QMainWindow):
             method = self.current_config['method']
             self.trainer = self.create_trainer(method)
 
-            # Create controller
-            self.controller = SimulationController(self.trainer)
+            # Create controller with auto-save
+            method_lower = method.lower()
+            save_dir = f"saved_models/{method_lower}"
+            self.controller = SimulationController(self.trainer, save_dir=save_dir, save_interval=10)
 
             # Connect controller signals
             self.controller.metrics_updated.connect(self.on_metrics_updated)
@@ -345,6 +352,13 @@ class MainWindow(QMainWindow):
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
 
+        dialog.exec_()
+
+    def on_test_model(self):
+        """Open model viewer for testing trained models."""
+        from gui.dialogs.model_viewer import ModelViewer
+
+        dialog = ModelViewer(self.current_config, self)
         dialog.exec_()
 
     def on_export_data(self):
