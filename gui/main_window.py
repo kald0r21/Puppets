@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
         # Create parameter editor
         param_editor = ParamEditor()
         param_editor.set_config(self.current_config)
-        param_editor.param_changed.connect(self.on_config_changed)
+        # Note: param_editor updates self.current_config directly, no need to connect signal
         layout.addWidget(param_editor)
 
         # Add button box
@@ -352,7 +352,11 @@ class MainWindow(QMainWindow):
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
 
-        dialog.exec_()
+        result = dialog.exec_()
+
+        # If accepted, update control panel with new config
+        if result == QDialog.Accepted:
+            self.control_panel.set_config(self.current_config)
 
     def on_test_model(self):
         """Open model viewer for testing trained models."""
