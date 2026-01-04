@@ -114,11 +114,18 @@ class ControlPanel(QWidget):
 
     def update_parameters(self):
         """Update parameter widgets based on current config."""
-        # Clear existing widgets
+        # Clear existing widgets and layouts
         while self.params_layout.count():
             item = self.params_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+            elif item.layout():
+                # Clear child layout
+                while item.layout().count():
+                    child = item.layout().takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+                item.layout().deleteLater()
 
         if not self.current_config:
             return
