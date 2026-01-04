@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QScrollArea, QLabel,
                               QFormLayout, QTabWidget)
 from PyQt5.QtCore import pyqtSignal, Qt
 
+from core.localization import tr
+
 
 class ParamEditor(QWidget):
     """
@@ -70,64 +72,64 @@ class ParamEditor(QWidget):
         main_layout = QVBoxLayout(content)
 
         # World settings
-        world_group = QGroupBox("World Settings")
+        world_group = QGroupBox(tr('params.world_settings'))
         world_form = QFormLayout()
 
-        self.add_spinbox(world_form, 'simulation', 'grid_width', "Grid Width:",
+        self.add_spinbox(world_form, 'simulation', 'grid_width', tr('params.grid_width') + ':',
                         sim_config.get('grid_width', 40), 10, 200)
-        self.add_spinbox(world_form, 'simulation', 'grid_height', "Grid Height:",
+        self.add_spinbox(world_form, 'simulation', 'grid_height', tr('params.grid_height') + ':',
                         sim_config.get('grid_height', 40), 10, 200)
-        self.add_spinbox(world_form, 'simulation', 'num_food', "Food Count:",
+        self.add_spinbox(world_form, 'simulation', 'num_food', tr('params.food_count') + ':',
                         sim_config.get('num_food', 45), 0, 500)
-        self.add_spinbox(world_form, 'simulation', 'num_walls', "Wall Count:",
+        self.add_spinbox(world_form, 'simulation', 'num_walls', tr('params.wall_count') + ':',
                         sim_config.get('num_walls', 50), 0, 500)
 
         world_group.setLayout(world_form)
         main_layout.addWidget(world_group)
 
         # Agent energy settings
-        energy_group = QGroupBox("Agent Energy")
+        energy_group = QGroupBox(tr('params.agent_energy'))
         energy_form = QFormLayout()
 
-        self.add_spinbox(energy_form, 'simulation', 'start_energy', "Start Energy:",
+        self.add_spinbox(energy_form, 'simulation', 'start_energy', tr('params.start_energy') + ':',
                         sim_config.get('start_energy', 100), 10, 1000)
-        self.add_spinbox(energy_form, 'simulation', 'eat_gain', "Food Energy Gain:",
+        self.add_spinbox(energy_form, 'simulation', 'eat_gain', tr('params.food_energy_gain') + ':',
                         sim_config.get('eat_gain', 150), 10, 1000)
-        self.add_spinbox(energy_form, 'simulation', 'max_energy_gain_per_food', "Max Energy Gain/Food:",
+        self.add_spinbox(energy_form, 'simulation', 'max_energy_gain_per_food', tr('params.max_energy_per_food') + ':',
                         sim_config.get('max_energy_gain_per_food', 10), 0, 100)
-        self.add_spinbox(energy_form, 'simulation', 'move_cost', "Move Cost:",
+        self.add_spinbox(energy_form, 'simulation', 'move_cost', tr('params.move_cost') + ':',
                         sim_config.get('move_cost', 1), 0, 50)
-        self.add_spinbox(energy_form, 'simulation', 'idle_cost', "Idle Cost:",
+        self.add_spinbox(energy_form, 'simulation', 'idle_cost', tr('params.idle_cost') + ':',
                         sim_config.get('idle_cost', 3), 0, 50)
-        self.add_spinbox(energy_form, 'simulation', 'wall_hit_penalty', "Wall Hit Penalty:",
+        self.add_spinbox(energy_form, 'simulation', 'wall_hit_penalty', tr('params.wall_hit_penalty') + ':',
                         sim_config.get('wall_hit_penalty', 3), 0, 50)
 
         energy_group.setLayout(energy_form)
         main_layout.addWidget(energy_group)
 
         # Perception
-        perception_group = QGroupBox("Perception")
+        perception_group = QGroupBox(tr('params.perception'))
         perception_form = QFormLayout()
 
-        self.add_spinbox(perception_form, 'simulation', 'smart_perception_radius', "Perception Radius:",
+        self.add_spinbox(perception_form, 'simulation', 'smart_perception_radius', tr('params.perception_radius') + ':',
                         sim_config.get('smart_perception_radius', 10), 1, 50)
-        self.add_doublespinbox(perception_form, 'simulation', 'reward_shaping_factor', "Reward Shaping:",
+        self.add_doublespinbox(perception_form, 'simulation', 'reward_shaping_factor', tr('params.reward_shaping') + ':',
                               sim_config.get('reward_shaping_factor', 0.1), 0.0, 10.0, 2)
 
         perception_group.setLayout(perception_form)
         main_layout.addWidget(perception_group)
 
         # Predator settings
-        predator_group = QGroupBox("Predator Settings")
+        predator_group = QGroupBox(tr('params.predator_settings'))
         predator_form = QFormLayout()
 
-        self.add_spinbox(predator_form, 'simulation', 'predator_count', "Predator Count:",
+        self.add_spinbox(predator_form, 'simulation', 'predator_count', tr('params.predator_count') + ':',
                         sim_config.get('predator_count', 5), 0, 50)
-        self.add_checkbox(predator_form, 'simulation', 'predator_respawn', "Predator Respawn:",
+        self.add_checkbox(predator_form, 'simulation', 'predator_respawn', tr('params.predator_respawn') + ':',
                          sim_config.get('predator_respawn', True))
-        self.add_spinbox(predator_form, 'simulation', 'predator_vision', "Predator Vision:",
+        self.add_spinbox(predator_form, 'simulation', 'predator_vision', tr('params.predator_vision') + ':',
                         sim_config.get('predator_vision', 10), 1, 50)
-        self.add_spinbox(predator_form, 'simulation', 'predator_base_strength', "Predator Strength:",
+        self.add_spinbox(predator_form, 'simulation', 'predator_base_strength', tr('params.predator_strength') + ':',
                         sim_config.get('predator_base_strength', 5), 1, 100)
         self.add_spinbox(predator_form, 'simulation', 'predator_ally_bonus', "Ally Bonus:",
                         sim_config.get('predator_ally_bonus', 2), 0, 50)
@@ -138,12 +140,12 @@ class ParamEditor(QWidget):
         main_layout.addWidget(predator_group)
 
         # Kill mechanics
-        kill_group = QGroupBox("Kill Mechanics")
+        kill_group = QGroupBox(tr('params.kill_mechanics'))
         kill_form = QFormLayout()
 
-        self.add_spinbox(kill_form, 'simulation', 'kill_license_level', "Kill License Level:",
+        self.add_spinbox(kill_form, 'simulation', 'kill_license_level', tr('params.kill_license_level') + ':',
                         sim_config.get('kill_license_level', 5), 0, 50)
-        self.add_spinbox(kill_form, 'simulation', 'kill_cost_pellets', "Kill Cost (Pellets):",
+        self.add_spinbox(kill_form, 'simulation', 'kill_cost_pellets', tr('params.kill_cost_pellets') + ':',
                         sim_config.get('kill_cost_pellets', 1), 0, 20)
 
         kill_group.setLayout(kill_form)
@@ -151,7 +153,7 @@ class ParamEditor(QWidget):
 
         main_layout.addStretch()
         scroll.setWidget(content)
-        self.tabs.addTab(scroll, "Simulation")
+        self.tabs.addTab(scroll, tr('tabs.simulation'))
 
     def create_ga_tab(self, ga_config):
         """Create GA parameters tab."""
@@ -182,7 +184,7 @@ class ParamEditor(QWidget):
         layout.addStretch()
 
         scroll.setWidget(content)
-        self.tabs.addTab(scroll, "GA Settings")
+        self.tabs.addTab(scroll, tr("tabs.ga_settings"))
 
     def create_cnn_tab(self, cnn_config):
         """Create CNN parameters tab."""
@@ -215,7 +217,7 @@ class ParamEditor(QWidget):
         layout.addStretch()
 
         scroll.setWidget(content)
-        self.tabs.addTab(scroll, "CNN Settings")
+        self.tabs.addTab(scroll, tr("tabs.cnn_settings"))
 
     def create_dqn_tab(self, dqn_config):
         """Create DQN parameters tab."""
@@ -281,7 +283,7 @@ class ParamEditor(QWidget):
 
         main_layout.addStretch()
         scroll.setWidget(content)
-        self.tabs.addTab(scroll, "DQN Settings")
+        self.tabs.addTab(scroll, tr("tabs.dqn_settings"))
 
     def create_visualization_tab(self, viz_config):
         """Create visualization parameters tab."""
@@ -304,7 +306,7 @@ class ParamEditor(QWidget):
         layout.addStretch()
 
         scroll.setWidget(content)
-        self.tabs.addTab(scroll, "Visualization")
+        self.tabs.addTab(scroll, tr("tabs.visualization"))
 
     def add_spinbox(self, form, section, key, label, value, min_val, max_val):
         """Add integer spinbox."""
