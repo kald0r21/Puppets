@@ -211,9 +211,9 @@ class MainWindow(QMainWindow):
         try:
             self.current_config = self.config_manager.load_default(method)
             self.control_panel.set_config(self.current_config)
-            self.statusBar().showMessage(f"Loaded default {method} configuration")
+            self.statusBar().showMessage(tr('message.loaded_config', method=method))
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load config: {e}")
+            QMessageBox.critical(self, tr('message.error'), tr('message.failed_load', error=str(e)))
 
     def create_trainer(self, method):
         """Create trainer for the selected method."""
