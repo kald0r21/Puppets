@@ -13,6 +13,7 @@ from core.trainers.ga_trainer import GATrainer
 from core.trainers.cnn_trainer import CNNTrainer
 from core.trainers.dqn_trainer import DQNTrainer
 from core.controller.simulation_controller import SimulationController
+from core.localization import tr, set_language, get_language
 
 # Import widgets (we'll create these)
 from gui.widgets.control_panel import ControlPanel
@@ -36,6 +37,10 @@ class MainWindow(QMainWindow):
         self.trainer = None
         self.controller = None
 
+        # Store menu actions for language switching
+        self.menu_actions = {}
+        self.menus = {}
+
         # Initialize UI
         self.init_ui()
 
@@ -44,7 +49,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle("Puppets - AI Evolution Simulator")
+        self.update_window_title()
         self.setGeometry(100, 100, 1400, 900)
 
         # Create menu bar
@@ -95,7 +100,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter)
 
         # Status bar
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage(tr('message.ready'))
 
         # Connect signals
         self.connect_signals()
@@ -103,69 +108,93 @@ class MainWindow(QMainWindow):
     def create_menus(self):
         """Create menu bar."""
         menubar = self.menuBar()
+        menubar.clear()
 
         # File menu
-        file_menu = menubar.addMenu("&File")
+        file_menu = menubar.addMenu(tr('menu.file'))
+        self.menus['file'] = file_menu
 
-        new_action = QAction("&New", self)
+        new_action = QAction(tr('menu.new'), self)
         new_action.setShortcut(QKeySequence.New)
         new_action.triggered.connect(self.on_new)
         file_menu.addAction(new_action)
+        self.menu_actions['new'] = new_action
 
-        open_action = QAction("&Open Config", self)
+        open_action = QAction(tr('menu.open'), self)
         open_action.setShortcut(QKeySequence.Open)
         open_action.triggered.connect(self.on_open_config)
         file_menu.addAction(open_action)
+        self.menu_actions['open'] = open_action
 
-        save_action = QAction("&Save Config", self)
+        save_action = QAction(tr('menu.save'), self)
         save_action.setShortcut(QKeySequence.Save)
         save_action.triggered.connect(self.on_save_config)
         file_menu.addAction(save_action)
+        self.menu_actions['save'] = save_action
 
         file_menu.addSeparator()
 
-        exit_action = QAction("E&xit", self)
+        exit_action = QAction(tr('menu.exit'), self)
         exit_action.setShortcut(QKeySequence.Quit)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+        self.menu_actions['exit'] = exit_action
 
         # View menu
-        view_menu = menubar.addMenu("&View")
+        view_menu = menubar.addMenu(tr('menu.view'))
+        self.menus['view'] = view_menu
 
-        fullscreen_action = QAction("&Fullscreen Simulation", self)
+        fullscreen_action = QAction(tr('menu.fullscreen'), self)
         fullscreen_action.setShortcut(Qt.Key_F11)
         fullscreen_action.triggered.connect(self.toggle_fullscreen_simulation)
         view_menu.addAction(fullscreen_action)
+        self.menu_actions['fullscreen'] = fullscreen_action
 
         # Tools menu
-        tools_menu = menubar.addMenu("&Tools")
+        tools_menu = menubar.addMenu(tr('menu.tools'))
+        self.menus['tools'] = tools_menu
 
-        params_action = QAction("&Advanced Parameters", self)
+        params_action = QAction(tr('menu.advanced_params'), self)
         params_action.setShortcut(Qt.Key_F2)
         params_action.triggered.connect(self.on_edit_parameters)
         tools_menu.addAction(params_action)
+        self.menu_actions['params'] = params_action
 
-        test_model_action = QAction("&Test Model", self)
+        test_model_action = QAction(tr('menu.test_model'), self)
         test_model_action.setShortcut(Qt.Key_F3)
         test_model_action.triggered.connect(self.on_test_model)
         tools_menu.addAction(test_model_action)
+        self.menu_actions['test_model'] = test_model_action
 
         tools_menu.addSeparator()
 
-        export_action = QAction("&Export Data", self)
+        export_action = QAction(tr('menu.export_data'), self)
         export_action.triggered.connect(self.on_export_data)
         tools_menu.addAction(export_action)
+        self.menu_actions['export'] = export_action
 
-        compare_action = QAction("&Compare Runs", self)
+        compare_action = QAction(tr('menu.compare_runs'), self)
         compare_action.triggered.connect(self.on_compare_runs)
         tools_menu.addAction(compare_action)
+        self.menu_actions['compare'] = compare_action
+
+        # Settings menu
+        settings_menu = menubar.addMenu(tr('menu.settings'))
+        self.menus['settings'] = settings_menu
+
+        language_action = QAction(tr('menu.language'), self)
+        language_action.triggered.connect(self.on_change_language)
+        settings_menu.addAction(language_action)
+        self.menu_actions['language'] = language_action
 
         # Help menu
-        help_menu = menubar.addMenu("&Help")
+        help_menu = menubar.addMenu(tr('menu.help'))
+        self.menus['help'] = help_menu
 
-        about_action = QAction("&About", self)
+        about_action = QAction(tr('menu.about'), self)
         about_action.triggered.connect(self.on_about)
         help_menu.addAction(about_action)
+        self.menu_actions['about'] = about_action
 
     def connect_signals(self):
         """Connect widget signals to slots."""
@@ -384,20 +413,60 @@ class MainWindow(QMainWindow):
         """Show about dialog."""
         QMessageBox.about(
             self,
-            "About Puppets",
-            "Puppets - AI Evolution Simulator\n\n"
-            "Compare Genetic Algorithms, CNN, and Deep Q-Learning\n"
-            "for evolving agents in a simulated environment.\n\n"
-            "Version 2.0 - Refactored Edition"
+            tr('dialog.about_title'),
+            tr('dialog.about_text')
         )
+
+    def on_change_language(self):
+        """Open language selection dialog."""
+        from gui.dialogs.language_dialog import LanguageDialog
+
+        dialog = LanguageDialog(self)
+        result = dialog.exec_()
+
+        if result == LanguageDialog.Accepted:
+            new_lang = dialog.get_selected_language()
+            if new_lang != get_language():
+                set_language(new_lang)
+                self.update_ui_language()
+                QMessageBox.information(
+                    self,
+                    tr('message.ready'),
+                    f"Language changed to {new_lang}"
+                )
+
+    def update_ui_language(self):
+        """Update all UI elements with new language."""
+        # Update window title
+        self.update_window_title()
+
+        # Recreate menus with new translations
+        self.create_menus()
+
+        # Update status bar
+        self.statusBar().showMessage(tr('message.ready'))
+
+        # Update control panel and other widgets
+        if self.control_panel:
+            self.control_panel.update_language()
+
+        if self.stats_panel:
+            self.stats_panel.update_language()
+
+        if self.chart_widget:
+            self.chart_widget.update_language()
+
+    def update_window_title(self):
+        """Update window title with current language."""
+        self.setWindowTitle(tr('app.title'))
 
     def closeEvent(self, event):
         """Handle window close."""
         if self.controller and self.controller.is_running:
             reply = QMessageBox.question(
                 self,
-                "Confirm Exit",
-                "Training is still running. Are you sure you want to exit?",
+                tr('dialog.confirm_exit'),
+                tr('dialog.training_running'),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )

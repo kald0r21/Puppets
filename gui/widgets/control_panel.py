@@ -220,3 +220,10 @@ class ControlPanel(QWidget):
             self.pause_button.setText("▶ Resume")
         else:
             self.pause_button.setText("⏸ Pause")
+
+    def update_language(self):
+        """Update widget text for new language."""
+        # Update group box titles
+        # Note: This is a simplified implementation
+        # In a full implementation, we would use translations for all labels
+        pass
