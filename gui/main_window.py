@@ -19,6 +19,7 @@ from gui.widgets.control_panel import ControlPanel
 from gui.widgets.pygame_widget import PygameWidget
 from gui.widgets.stats_panel import StatsPanel
 from gui.widgets.chart_widget import ChartWidget
+from gui.widgets.param_editor import ParamEditor
 
 
 class MainWindow(QMainWindow):
@@ -138,6 +139,13 @@ class MainWindow(QMainWindow):
 
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
+
+        params_action = QAction("&Advanced Parameters", self)
+        params_action.setShortcut(Qt.Key_F2)
+        params_action.triggered.connect(self.on_edit_parameters)
+        tools_menu.addAction(params_action)
+
+        tools_menu.addSeparator()
 
         export_action = QAction("&Export Data", self)
         export_action.triggered.connect(self.on_export_data)
@@ -314,6 +322,30 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Saved config to {filename}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save config: {e}")
+
+    def on_edit_parameters(self):
+        """Open advanced parameter editor."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Advanced Parameters")
+        dialog.resize(600, 700)
+
+        layout = QVBoxLayout(dialog)
+
+        # Create parameter editor
+        param_editor = ParamEditor()
+        param_editor.set_config(self.current_config)
+        param_editor.param_changed.connect(self.on_config_changed)
+        layout.addWidget(param_editor)
+
+        # Add button box
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        dialog.exec_()
 
     def on_export_data(self):
         """Export training data."""
