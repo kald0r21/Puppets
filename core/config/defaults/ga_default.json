@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "method": "GA",
+  "simulation": {
+    "grid_width": 40,
+    "grid_height": 40,
+    "num_food": 45,
+    "num_walls": 50,
+    "start_energy": 100,
+    "eat_gain": 150,
+    "max_energy_gain_per_food": 10,
+    "move_cost": 1,
+    "idle_cost": 3,
+    "wall_hit_penalty": 3,
+    "smart_perception_radius": 10,
+    "reward_shaping_factor": 0.1,
+    "predator_count": 5,
+    "predator_respawn": true,
+    "predator_vision": 10,
+    "predator_base_strength": 5,
+    "predator_ally_bonus": 2,
+    "predator_ally_radius": 3,
+    "kill_license_level": 5,
+    "kill_cost_pellets": 1
+  },
+  "ga": {
+    "population_size": 100,
+    "num_generations": 200,
+    "max_turns_per_gen": 1000,
+    "mutation_rate": 0.05,
+    "mutation_strength": 0.5,
+    "elitism_count": 10,
+    "hidden_layers": [16, 16]
+  },
+  "visualization": {
+    "fps": 60,
+    "cell_size": 14,
+    "colors": {
+      "background": [20, 20, 20],
+      "grid": [40, 40, 40],
+      "food": [0, 255, 0],
+      "agent": [0, 150, 255],
+      "predator": [255, 0, 0],
+      "wall": [100, 100, 100]
+    }
+  }
+}
