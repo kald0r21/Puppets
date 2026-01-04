@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "method": "DQN",
+  "simulation": {
+    "grid_width": 40,
+    "grid_height": 40,
+    "num_food": 45,
+    "num_walls": 50,
+    "start_energy": 100,
+    "eat_gain": 150,
+    "max_energy_gain_per_food": 10,
+    "move_cost": 1,
+    "idle_cost": 3,
+    "wall_hit_penalty": 3,
+    "smart_perception_radius": 10,
+    "predator_count": 5,
+    "predator_respawn": true,
+    "predator_vision": 10,
+    "predator_base_strength": 5,
+    "kill_license_level": 5,
+    "kill_cost_pellets": 1
+  },
+  "dqn": {
+    "num_episodes": 2000,
+    "max_turns_per_episode": 1000,
+    "agent_hidden_layers": [64, 32],
+    "agent_learning_rate": 0.001,
+    "agent_memory_size": 50000,
+    "agent_batch_size": 128,
+    "agent_eps_start": 0.9,
+    "agent_eps_end": 0.05,
+    "agent_eps_decay": 30000,
+    "predator_hidden_layers": [64, 32],
+    "predator_learning_rate": 0.001,
+    "predator_memory_size": 50000,
+    "predator_batch_size": 128,
+    "predator_eps_start": 0.9,
+    "predator_eps_end": 0.05,
+    "predator_eps_decay": 20000,
+    "gamma": 0.99
+  },
+  "visualization": {
+    "fps": 1000,
+    "cell_size": 14,
+    "colors": {
+      "background": [20, 20, 20],
+      "grid": [40, 40, 40],
+      "food": [0, 255, 0],
+      "agent": [0, 150, 255],
+      "predator": [255, 0, 0],
+      "wall": [100, 100, 100]
+    }
+  }
+}
