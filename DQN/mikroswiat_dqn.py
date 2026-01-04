@@ -11,38 +11,36 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-# Import konfiguracji
 try:
     import config_dqn as cfg
 except ImportError:
     print("BRAK PLIKU KONFIGURACJI! Upewnij się, że masz plik 'config_dqn.py'.")
     exit()
 
-# --- Sprawdzenie GPU ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Używane urządzenie do obliczeń DQN: {device}")
+print(f"Używane urządzenie: {device}")
 
 
-# --- FUNKCJE LOGOWANIA ---
+# --- LOGOWANIE ---
 def inicjuj_log_wynikow(sciezka_pliku):
     try:
         with open(sciezka_pliku, mode='w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['epizod', 'wynik', 'sredni_wynik_10_ost', 'zjedzone', 'zabite'])
-    except IOError as e:
-        print(f"Błąd przy tworzeniu pliku logu: {e}")
+            writer.writerow(['epizod', 'wynik_agentow', 'pop_agentow', 'wynik_predatorow', 'pop_predatorow'])
+    except IOError:
+        pass
 
 
-def dopisz_log_wynikow(sciezka_pliku, epizod, wynik, sredni_wynik, zjedzone, zabite):
+def dopisz_log_wynikow(sciezka_pliku, epizod, rew_a, pop_a, rew_p, pop_p):
     try:
         with open(sciezka_pliku, mode='a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([epizod, wynik, sredni_wynik, zjedzone, zabite])
-    except IOError as e:
-        print(f"Błąd przy zapisie do pliku logu: {e}")
+            writer.writerow([epizod, rew_a, pop_a, rew_p, pop_p])
+    except IOError:
+        pass
 
 
-# --- 1. MÓZG (Sieć Q - MLP) ---
+# --- MÓZG (DQN) ---
 class DQNNet(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
         super(DQNNet, self).__init__()
@@ -59,7 +57,6 @@ class DQNNet(nn.Module):
         return self.network(x)
 
 
-# --- 2. PAMIĘĆ (Replay Memory) ---
 Experience = namedtuple('Experience', ('state', 'action', 'reward', 'next_state', 'done'))
 
 
@@ -77,11 +74,9 @@ class ReplayMemory:
         return len(self.memory)
 
 
-# --- 3. GŁÓWNY AGENT/TRENER ---
 class DQNAgent:
     def __init__(self, input_size, output_size, hidden_layers, lr, mem_size, batch_size, gamma, eps_start, eps_end,
                  eps_decay):
-        self.input_size = input_size
         self.output_size = output_size
         self.batch_size = batch_size
         self.gamma = gamma
@@ -93,26 +88,22 @@ class DQNAgent:
         self.target_net = DQNNet(input_size, hidden_layers, output_size).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
-
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
         self.memory = ReplayMemory(mem_size)
         self.steps_done = 0
 
     def select_action(self, state):
-        eps_threshold = self.eps_end + (self.eps_start - self.eps_end) * \
-                        math.exp(-1. * self.steps_done / self.eps_decay)
+        eps = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.steps_done / self.eps_decay)
         self.steps_done += 1
-        if random.random() > eps_threshold:
+        if random.random() > eps:
             with torch.no_grad():
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
-                return self.policy_net(state_tensor).max(1)[1].view(1, 1)
+                return self.policy_net(torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)).max(1)[1].view(
+                    1, 1)
         else:
             return torch.tensor([[random.randrange(self.output_size)]], device=device, dtype=torch.long)
 
     def optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return 0.0
-
+        if len(self.memory) < self.batch_size: return
         experiences = self.memory.sample(self.batch_size)
         batch = Experience(*zip(*experiences))
         state_batch = torch.tensor(np.array(batch.state), dtype=torch.float32).to(device)
@@ -121,523 +112,512 @@ class DQNAgent:
         next_state_batch = torch.tensor(np.array(batch.next_state), dtype=torch.float32).to(device)
         done_batch = torch.tensor(batch.done, dtype=torch.float32).to(device)
 
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-        next_state_values = self.target_net(next_state_batch).max(1)[0].detach()
-        expected_state_action_values = (next_state_values * self.gamma * (1.0 - done_batch)) + reward_batch
+        q_eval = self.policy_net(state_batch).gather(1, action_batch)
+        q_next = self.target_net(next_state_batch).max(1)[0].detach()
+        q_target = (q_next * self.gamma * (1.0 - done_batch)) + reward_batch
 
-        criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
+        loss = F.smooth_l1_loss(q_eval, q_target.unsqueeze(1))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        return loss.item()
 
 
-# --- 4. ŚWIAT I AKTORZY ---
-
+# --- HELPER: TOROIDAL DISTANCE ---
 def get_toroidal_distance(x1, y1, x2, y2, w, h):
     dx = x2 - x1
     dy = y2 - y1
     if dx > w / 2:
-        dx = dx - w
+        dx -= w
     elif dx < -w / 2:
-        dx = dx + w
+        dx += w
     if dy > h / 2:
-        dy = dy - h
+        dy -= h
     elif dy < -h / 2:
-        dy = dy + h
+        dy += h
     return dx, dy
 
 
+# --- ENTITY CLASSES ---
 class AgentEntity:
-    def __init__(self, world_width, world_height):
-        self.x = random.randint(0, world_width - 1)
-        self.y = random.randint(0, world_height - 1)
-        self.energy = cfg.START_ENERGY
+    def __init__(self, w, h, start_energy=None, x=None, y=None):
+        self.x = random.randint(0, w - 1) if x is None else x
+        self.y = random.randint(0, h - 1) if y is None else y
+        self.energy = cfg.START_ENERGY if start_energy is None else start_energy
         self.is_alive = True
+        self.age = 0
         self.food_eaten_count = 0
-        self.max_energy = cfg.START_ENERGY
         self.predators_killed = 0
+        self.last_action_idx = 4
+        self.is_camouflaged = False
 
 
 class PredatorEntity:
-    def __init__(self, world_width, world_height, id):
+    def __init__(self, w, h, id, start_energy=None, x=None, y=None):
         self.id = id
-        self.x = random.randint(0, world_width - 1)
-        self.y = random.randint(0, world_height - 1)
-        self.is_alive = True
+        self.x = random.randint(0, w - 1) if x is None else x
+        self.y = random.randint(0, h - 1) if y is None else y
+
+        # --- PREDATOR BIOLOGY ---
+        self.energy = cfg.PREDATOR_START_ENERGY if start_energy is None else start_energy
+        self.age = 0
         self.strength = cfg.PREDATOR_BASE_STRENGTH
+        self.is_alive = True
+
         self.last_state = None
         self.last_action = None
+        self.last_action_idx = 4
+        self.is_sniffing = False
 
 
+# --- WORLD CLASS ---
 class World:
-    def __init__(self, width, height, agent_entity):
-        self.width = width
-        self.height = height
-        self.agent_entity = agent_entity
-        self.wall_positions = set()
-        self.food_positions = set()
+    def __init__(self, w, h):
+        self.width = w
+        self.height = h
+        self.agents = []
+        self.agents.append(AgentEntity(w, h))
+
+        self.walls = set()
+        self.food = set()
+        self.mud = set()
+        self.scent_grid = np.zeros((w, h))
+
         self.spawn_walls(cfg.NUM_WALLS)
+        self.spawn_mud(cfg.NUM_MUD)
         self.spawn_food(cfg.NUM_FOOD)
+
         self.predators = []
-        self.spawn_predators(cfg.PREDATOR_COUNT)
+        # Spawn initial predators
+        self.spawn_predators(cfg.PREDATOR_COUNT_START)
 
-    def spawn_food(self, amount):
-        for _ in range(amount):
+    def spawn_food(self, n):
+        for _ in range(n):
             while True:
-                x = random.randint(0, self.width - 1)
-                y = random.randint(0, self.height - 1)
-                if (x, y) not in self.wall_positions and (x, y) not in self.food_positions:
-                    self.food_positions.add((x, y))
+                x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+                if (x, y) not in self.walls and (x, y) not in self.food:
+                    self.food.add((x, y));
                     break
 
-    def spawn_walls(self, amount):
-        for _ in range(amount):
+    def spawn_walls(self, n):
+        for _ in range(n):
             while True:
-                x = random.randint(0, self.width - 1)
-                y = random.randint(0, self.height - 1)
-                if x != self.agent_entity.x or y != self.agent_entity.y:
-                    self.wall_positions.add((x, y))
+                x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+                if len(self.agents) > 0:
+                    if (x, y) == (self.agents[0].x, self.agents[0].y): continue
+                self.walls.add((x, y));
+                break
+
+    def spawn_mud(self, n):
+        for _ in range(n):
+            while True:
+                x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+                if (x, y) not in self.walls:
+                    self.mud.add((x, y));
                     break
 
-    def spawn_predators(self, amount):
-        start_id = len(self.predators)
-        for i in range(amount):
-            self.predators.append(PredatorEntity(self.width, self.height, id=start_id + i))
+    def spawn_predators(self, n):
+        start = 10000 + len(self.predators)  # Unikalne ID
+        for i in range(n): self.predators.append(PredatorEntity(self.width, self.height, start + i))
+
+    def update_scents(self):
+        self.scent_grid *= cfg.SCENT_DECAY
+        for a in self.get_alive_agents():
+            amount = cfg.SCENT_ADDED * 0.1 if a.is_camouflaged else cfg.SCENT_ADDED
+            self.scent_grid[a.x, a.y] = min(1.0, self.scent_grid[a.x, a.y] + amount)
+
+    def move_entity(self, ent, action):
+        if isinstance(ent, AgentEntity): ent.is_camouflaged = False
+        if isinstance(ent, PredatorEntity): ent.is_sniffing = False
+        ent.last_action_idx = action
+        cost = cfg.IDLE_COST
+        steps = 1
+
+        if action == 4: return True, cost
+
+        if action == 6:
+            if isinstance(ent, AgentEntity):
+                ent.is_camouflaged = True
+                cost = cfg.CAMO_COST
+            else:
+                ent.is_sniffing = True
+                cost = cfg.SNIFF_COST
+            return True, cost
+
+        if action == 5:
+            steps = 2
+            cost = cfg.DASH_COST
+        else:
+            cost = cfg.MOVE_COST
+
+        success = True
+        for _ in range(steps):
+            nx, ny = ent.x, ent.y
+            if action == 0 or action == 5:
+                ny = (ny - 1) % self.height
+            elif action == 1:
+                ny = (ny + 1) % self.height
+            elif action == 2:
+                nx = (nx - 1) % self.width
+            elif action == 3:
+                nx = (nx + 1) % self.width
+
+            if (nx, ny) in self.walls:
+                success = False
+                break
+
+            ent.x, ent.y = nx, ny
+            if (ent.x, ent.y) in self.mud:
+                cost += (cfg.MUD_MOVE_COST - cfg.MOVE_COST)
+
+        return success, cost
+
+    def handle_fight(self, p, a):
+        win_chance = 0.5
+        if a.food_eaten_count > 0:
+            win_chance = a.food_eaten_count / (a.food_eaten_count + p.strength)
+
+        if random.random() < win_chance:
+            if a.food_eaten_count >= cfg.KILL_LICENSE_LEVEL:
+                p.is_alive = False
+                a.food_eaten_count -= cfg.KILL_COST_PELLETS
+                a.predators_killed += 1
+        else:
+            a.is_alive = False
+            # PREDATOR GAINS ENERGY FROM KILL
+            p.energy += cfg.PREDATOR_EAT_GAIN
+
+    # --- UNIWERSALNE ROZMNAŻANIE (AGENCI I DRAPIEŻNICY) ---
+    def handle_reproduction(self):
+        # 1. Agenci
+        alive_agents = self.get_alive_agents()
+        if len(alive_agents) < cfg.MAX_POPULATION:
+            new_babies = []
+            for a in alive_agents:
+                if len(alive_agents) + len(new_babies) >= cfg.MAX_POPULATION: break
+                if a.energy >= cfg.REPRODUCTION_THRESHOLD and a.age > 50:
+                    a.energy -= cfg.REPRODUCTION_COST
+                    off_x, off_y = random.randint(-1, 1), random.randint(-1, 1)
+                    child = AgentEntity(self.width, self.height, start_energy=cfg.REPRODUCTION_COST,
+                                        x=(a.x + off_x) % self.width, y=(a.y + off_y) % self.height)
+                    new_babies.append(child)
+            self.agents.extend(new_babies)
+
+        # 2. Drapieżnicy
+        alive_preds = self.get_alive_predators()
+        if len(alive_preds) < cfg.PREDATOR_MAX_POPULATION:
+            new_monsters = []
+            for p in alive_preds:
+                if len(alive_preds) + len(new_monsters) >= cfg.PREDATOR_MAX_POPULATION: break
+                if p.energy >= cfg.PREDATOR_REPRODUCTION_THRESHOLD and p.age > 50:
+                    p.energy -= cfg.PREDATOR_REPRODUCTION_COST
+                    off_x, off_y = random.randint(-1, 1), random.randint(-1, 1)
+                    # Nowe ID
+                    new_id = 10000 + len(self.predators) + len(new_monsters) + random.randint(0, 9999)
+                    child = PredatorEntity(self.width, self.height, id=new_id,
+                                           start_energy=cfg.PREDATOR_REPRODUCTION_COST, x=(p.x + off_x) % self.width,
+                                           y=(p.y + off_y) % self.height)
+                    new_monsters.append(child)
+            self.predators.extend(new_monsters)
+
+    def get_alive_agents(self):
+        return [a for a in self.agents if a.is_alive]
 
     def get_alive_predators(self):
         return [p for p in self.predators if p.is_alive]
 
-    def handle_fight(self, predator, agent):
-        agent_strength = agent.food_eaten_count
-        predator_strength = predator.strength
-        total_strength = agent_strength + predator_strength
-        if total_strength == 0:
-            win_chance = 0.5
+
+# --- LIDAR ---
+def get_lidar(ent, world, target_type='wall'):
+    dirs = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
+    readings = []
+    MAX_RANGE = 5.0
+
+    targets = set()
+    if target_type == 'wall':
+        targets = world.walls
+    elif target_type == 'food':
+        targets = world.food
+    elif target_type == 'predator':
+        targets = {(p.x, p.y) for p in world.get_alive_predators() if getattr(ent, 'id', -99) != p.id}
+    elif target_type == 'agent':
+        if isinstance(ent, PredatorEntity):
+            for a in world.get_alive_agents():
+                visible = True
+                if a.is_camouflaged and not ent.is_sniffing: visible = False
+                if visible: targets.add((a.x, a.y))
         else:
-            win_chance = agent_strength / total_strength
+            for a in world.get_alive_agents():
+                if a != ent: targets.add((a.x, a.y))
 
-        if random.random() < win_chance:
-            if agent.food_eaten_count >= cfg.KILL_LICENSE_LEVEL:
-                predator.is_alive = False
-                agent.food_eaten_count -= cfg.KILL_COST_PELLETS
-                agent.predators_killed += 1
-        else:
-            agent.is_alive = False
-            agent.energy = 0
-
-    def move_entity(self, entity, action):
-        next_x, next_y = entity.x, entity.y
-        if action == 0:
-            next_y = (entity.y - 1) % self.height
-        elif action == 1:
-            next_y = (entity.y + 1) % self.height
-        elif action == 2:
-            next_x = (entity.x - 1) % self.width
-        elif action == 3:
-            next_x = (entity.x + 1) % self.width
-        elif action == 4:
-            pass
-
-        if (next_x, next_y) in self.wall_positions:
-            return False
-        else:
-            entity.x, entity.y = next_x, next_y
-            return True
+    for dx, dy in dirs:
+        dist = MAX_RANGE
+        for r in range(1, int(MAX_RANGE) + 1):
+            cx = (ent.x + dx * r) % world.width
+            cy = (ent.y + dy * r) % world.height
+            if (cx, cy) in targets:
+                dist = float(r)
+                break
+        readings.append(dist / MAX_RANGE)
+    return readings
 
 
-# --- 5. FUNKCJE SENSE (STANU) ---
+# --- STATE FUNCTIONS ---
 def get_agent_state(agent, world):
-    inputs = [agent.energy / 1000.0]
-    radius = cfg.SMART_PERCEPTION_RADIUS
-    norm_dist = radius * 2
+    state = [agent.energy / 200.0]
 
-    vec_food = (norm_dist, norm_dist)
-    vec_pred = (norm_dist, norm_dist)
-    vec_ally = (norm_dist, norm_dist)
-    vec_wall = (norm_dist, norm_dist)
-
-    min_dist_food_sq = float('inf')
-    min_dist_pred_sq = float('inf')
-    min_dist_wall_sq = float('inf')
-
-    count_pred = 0
-    count_ally = 0
-
-    for (fx, fy) in world.food_positions:
+    min_dist = float('inf')
+    vec_food = [0, 0]
+    for fx, fy in world.food:
         dx, dy = get_toroidal_distance(agent.x, agent.y, fx, fy, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq < min_dist_food_sq and dist_sq <= radius * radius:
-            min_dist_food_sq = dist_sq
-            vec_food = (dx / radius, dy / radius)
-
-    for p in world.get_alive_predators():
-        dx, dy = get_toroidal_distance(agent.x, agent.y, p.x, p.y, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq <= radius * radius:
-            count_pred += 1
-            if dist_sq < min_dist_pred_sq:
-                min_dist_pred_sq = dist_sq
-                vec_pred = (dx / radius, dy / radius)
-
-    for (wx, wy) in world.wall_positions:
-        dx, dy = get_toroidal_distance(agent.x, agent.y, wx, wy, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq < min_dist_wall_sq and dist_sq <= radius * radius:
-            min_dist_wall_sq = dist_sq
-            vec_wall = (dx / radius, dy / radius)
-
-    inputs.extend(vec_food)
-    inputs.extend(vec_pred)
-    inputs.extend(vec_ally)
-    inputs.append(count_pred / 5.0)
-    inputs.append(count_ally / 5.0)
-    inputs.extend(vec_wall)
-    inputs.append(agent.predators_killed / 10.0)
-    return np.array(inputs)
+        d = dx * dx + dy * dy
+        if d < min_dist:
+            min_dist = d
+            vec_food = [dx / 20.0, dy / 20.0]
+    state.extend(vec_food)
+    state.extend(get_lidar(agent, world, 'wall'))
+    state.extend(get_lidar(agent, world, 'predator'))
+    is_mud = 1.0 if (agent.x, agent.y) in world.mud else 0.0
+    state.append(is_mud)
+    state.append(agent.last_action_idx / 6.0)
+    state.append(1.0 if agent.is_camouflaged else 0.0)
+    return np.array(state, dtype=np.float32)
 
 
 def get_predator_state(predator, world):
-    agent = world.agent_entity
-    radius = cfg.PREDATOR_VISION
-    norm_dist = radius * 2
-    vec_agent = (norm_dist, norm_dist)
-    vec_pred = (norm_dist, norm_dist)
-    vec_wall = (norm_dist, norm_dist)
-    min_dist_wall_sq = float('inf')
-    min_dist_pred_sq = float('inf')
-    count_pred = 0
+    # Predator also needs energy awareness!
+    state = [predator.energy / 300.0]
 
-    if agent.is_alive:
-        dx, dy = get_toroidal_distance(predator.x, predator.y, agent.x, agent.y, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq <= radius * radius:
-            vec_agent = (dx / radius, dy / radius)
+    vec_agent = [0, 0]
+    min_dist = float('inf')
+    alive_agents = world.get_alive_agents()
 
-    for p in world.get_alive_predators():
-        if p.id == predator.id: continue
-        dx, dy = get_toroidal_distance(predator.x, predator.y, p.x, p.y, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq <= radius * radius:
-            count_pred += 1
-            if dist_sq < min_dist_pred_sq:
-                min_dist_pred_sq = dist_sq
-                vec_pred = (dx / radius, dy / radius)
+    for a in alive_agents:
+        can_see = True
+        if a.is_camouflaged and not predator.is_sniffing: can_see = False
 
-    for (wx, wy) in world.wall_positions:
-        dx, dy = get_toroidal_distance(predator.x, predator.y, wx, wy, world.width, world.height)
-        dist_sq = dx * dx + dy * dy
-        if dist_sq < min_dist_wall_sq and dist_sq <= radius * radius:
-            min_dist_wall_sq = dist_sq
-            vec_wall = (dx / radius, dy / radius)
+        if can_see:
+            dx, dy = get_toroidal_distance(predator.x, predator.y, a.x, a.y, world.width, world.height)
+            d = dx * dx + dy * dy
+            if d <= cfg.PREDATOR_VISION ** 2 and d < min_dist:
+                min_dist = d
+                vec_agent = [dx / 20.0, dy / 20.0]
 
-    is_agent_vulnerable = 1.0 if agent.food_eaten_count < cfg.KILL_LICENSE_LEVEL else 0.0
-
-    inputs = []
-    inputs.extend(vec_agent)
-    inputs.extend(vec_pred)
-    inputs.extend(vec_wall)
-    inputs.append(count_pred / 5.0)
-    inputs.append(is_agent_vulnerable)
-    inputs.append(agent.food_eaten_count / 10.0)
-
-    return np.array(inputs)
+    state.extend(vec_agent)
+    state.extend(get_lidar(predator, world, 'wall'))
+    scent_val = world.scent_grid[predator.x, predator.y]
+    state.append(scent_val)
+    is_mud = 1.0 if (predator.x, predator.y) in world.mud else 0.0
+    state.append(is_mud)
+    state.append(predator.last_action_idx / 6.0)
+    state.append(1.0 if predator.is_sniffing else 0.0)
+    return np.array(state, dtype=np.float32)
 
 
-# --- 6. FUNKCJA RYSUJĄCA (Pygame) ---
-def draw_world(screen, world, agent):
+# --- DRAWING ---
+def draw_world(screen, world):
     screen.fill(cfg.COLOR_BG)
-    for x in range(0, cfg.WINDOW_WIDTH, cfg.CELL_SIZE):
-        pygame.draw.line(screen, cfg.COLOR_GRID, (x, 0), (x, cfg.WINDOW_HEIGHT))
-    for y in range(0, cfg.WINDOW_HEIGHT, cfg.CELL_SIZE):
-        pygame.draw.line(screen, cfg.COLOR_GRID, (0, y), (cfg.WINDOW_WIDTH, y))
-    for (x, y) in world.wall_positions:
-        rect = pygame.Rect(x * cfg.CELL_SIZE, y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
-        pygame.draw.rect(screen, cfg.COLOR_WALL, rect)
-    for (x, y) in world.food_positions:
-        rect = pygame.Rect(x * cfg.CELL_SIZE, y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
-        pygame.draw.rect(screen, cfg.COLOR_FOOD, rect)
+    for mx, my in world.mud:
+        r = pygame.Rect(mx * cfg.CELL_SIZE, my * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
+        pygame.draw.rect(screen, cfg.COLOR_MUD, r)
+    for wx, wy in world.walls:
+        r = pygame.Rect(wx * cfg.CELL_SIZE, wy * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
+        pygame.draw.rect(screen, cfg.COLOR_WALL, r)
+    for fx, fy in world.food:
+        r = pygame.Rect(fx * cfg.CELL_SIZE, fy * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
+        pygame.draw.rect(screen, cfg.COLOR_FOOD, r)
+
     for p in world.get_alive_predators():
-        rect = pygame.Rect(p.x * cfg.CELL_SIZE, p.y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
-        pygame.draw.rect(screen, cfg.COLOR_PREDATOR, rect)
-    if agent.is_alive:
-        base_blue = 150
-        level_bonus = agent.food_eaten_count * 10
-        blue_val = min(255, base_blue + level_bonus)
-        agent_color = (0, blue_val, 255)
-        rect = pygame.Rect(agent.x * cfg.CELL_SIZE, agent.y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
-        pygame.draw.rect(screen, agent_color, rect)
+        col = (255, 100, 100) if p.is_sniffing else cfg.COLOR_PREDATOR
+        r = pygame.Rect(p.x * cfg.CELL_SIZE, p.y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
+        pygame.draw.rect(screen, col, r)
+
+    for a in world.get_alive_agents():
+        col = cfg.COLOR_AGENT_CAMO if a.is_camouflaged else cfg.COLOR_AGENT
+        if a.age > cfg.MAX_AGE * 0.8: col = (150, 150, 255)
+        r = pygame.Rect(a.x * cfg.CELL_SIZE, a.y * cfg.CELL_SIZE, cfg.CELL_SIZE, cfg.CELL_SIZE)
+        pygame.draw.rect(screen, col, r)
+
     pygame.display.flip()
 
 
-# --- 7. PĘTLA GŁÓWNA (Trener Koewolucji) ---
+# --- MAIN LOOP ---
 def run_simulation():
     pygame.init()
     screen = pygame.display.set_mode((cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT))
-    pygame.display.set_caption(f"Mikroświat v36 - EARLY STOPPING ({device})")
+    pygame.display.set_caption(f"ECOSYSTEM SIM ({device})")
     clock = pygame.time.Clock()
-    try:
-        font = pygame.font.SysFont(None, 30)
-    except Exception:
-        font = pygame.font.Font(None, 30)
+    font = pygame.font.SysFont(None, 24)
 
-    if not os.path.exists(cfg.MODEL_SAVE_DIR):
-        os.makedirs(cfg.MODEL_SAVE_DIR)
-        print(f"Stworzono folder: {cfg.MODEL_SAVE_DIR}")
+    if not os.path.exists(cfg.MODEL_SAVE_DIR): os.makedirs(cfg.MODEL_SAVE_DIR)
+    inicjuj_log_wynikow(cfg.LOG_FILE)
 
-    sciezka_logu = cfg.LOG_FILE
-    inicjuj_log_wynikow(sciezka_logu)
-    print(f"Log wyników będzie zapisywany w: {sciezka_logu}")
+    agent_brain = DQNAgent(cfg.AGENT_INPUT_SIZE, cfg.AGENT_OUTPUT_SIZE, cfg.AGENT_HIDDEN_LAYERS,
+                           cfg.AGENT_LEARNING_RATE, cfg.AGENT_MEMORY_SIZE, cfg.AGENT_BATCH_SIZE, cfg.GAMMA,
+                           cfg.AGENT_EPS_START, cfg.AGENT_EPS_END, cfg.AGENT_EPS_DECAY)
 
-    # Inicjalizacja Agentów
-    agent_brain = DQNAgent(
-        input_size=12, output_size=5, hidden_layers=cfg.AGENT_HIDDEN_LAYERS,
-        lr=cfg.AGENT_LEARNING_RATE, mem_size=cfg.AGENT_MEMORY_SIZE,
-        batch_size=cfg.AGENT_BATCH_SIZE, gamma=cfg.GAMMA,
-        eps_start=cfg.AGENT_EPS_START, eps_end=cfg.AGENT_EPS_END, eps_decay=cfg.AGENT_EPS_DECAY
-    )
-    predator_brain = DQNAgent(
-        input_size=9, output_size=5, hidden_layers=cfg.PREDATOR_HIDDEN_LAYERS,
-        lr=cfg.PREDATOR_LEARNING_RATE, mem_size=cfg.PREDATOR_MEMORY_SIZE,
-        batch_size=cfg.PREDATOR_BATCH_SIZE, gamma=cfg.GAMMA,
-        eps_start=cfg.PREDATOR_EPS_START, eps_end=cfg.PREDATOR_EPS_END, eps_decay=cfg.PREDATOR_EPS_DECAY
-    )
+    # Predator Input +1 because we added Energy to inputs!
+    predator_brain = DQNAgent(cfg.PREDATOR_INPUT_SIZE + 1, cfg.PREDATOR_OUTPUT_SIZE, cfg.PREDATOR_HIDDEN_LAYERS,
+                              cfg.PREDATOR_LEARNING_RATE, cfg.PREDATOR_MEMORY_SIZE, cfg.PREDATOR_BATCH_SIZE, cfg.GAMMA,
+                              cfg.PREDATOR_EPS_START, cfg.PREDATOR_EPS_END, cfg.PREDATOR_EPS_DECAY)
 
-    print("Start symulacji...")
     total_agent_rewards = []
-    total_predator_rewards = []
-
-    # --- ZMIENNE DLA EARLY STOPPING ---
-    best_moving_avg = -float('inf')
-    patience_counter = 0
-    # ----------------------------------
+    best_avg = -float('inf')
+    patience = 0
 
     for episode in range(cfg.NUM_EPISODES):
-        agent_entity = AgentEntity(cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
-        world = World(cfg.GRID_WIDTH, cfg.GRID_HEIGHT, agent_entity)
+        world = World(cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
 
-        agent_state = get_agent_state(agent_entity, world)
-
-        episode_agent_reward = 0.0
-        episode_predator_reward = 0.0
+        ep_reward_pop_a = 0
+        ep_reward_pop_p = 0
 
         for turn in range(cfg.MAX_TURNS_PER_EPISODE):
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    print("Symulacja przerwana.")
-                    return
+            for e in pygame.event.get():
+                if e.type == pygame.QUIT: return
 
-            # --- 1. WYBÓR AKCJI ---
-            agent_action_tensor = agent_brain.select_action(agent_state)
-            agent_action = agent_action_tensor.item()
+            # === AGENT PHASE ===
+            alive_agents = world.get_alive_agents()
+            if not alive_agents and not world.get_alive_predators(): break  # All dead
 
-            predator_actions = {}
-            for p in world.get_alive_predators():
-                p_state = get_predator_state(p, world)
-                p_action_tensor = predator_brain.select_action(p_state)
-                p.last_state = p_state
-                p.last_action = p_action_tensor
-                predator_actions[p.id] = p_action_tensor.item()
+            for agent in alive_agents:
+                state = get_agent_state(agent, world)
+                action_tensor = agent_brain.select_action(state)
+                action = action_tensor.item()
 
-            # --- 2. LOGIKA PRZED RUCHEM (Dla Guidance Reward) ---
-            dist_to_food_before = float('inf')
-            for (fx, fy) in world.food_positions:
-                dx, dy = get_toroidal_distance(agent_entity.x, agent_entity.y, fx, fy, cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
-                d = math.sqrt(dx * dx + dy * dy)
-                if d < dist_to_food_before:
-                    dist_to_food_before = d
+                # Guidance setup
+                min_food_dist = float('inf')
+                for fx, fy in world.food:
+                    dx, dy = get_toroidal_distance(agent.x, agent.y, fx, fy, cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
+                    d = math.sqrt(dx * dx + dy * dy)
+                    if d < min_food_dist: min_food_dist = d
 
-            # --- 3. AKTUALIZACJA ŚWIATA ---
-            reward_agent = 0.0
-            rewards_predator = {p.id: 0.0 for p in world.get_alive_predators()}
+                success, cost = world.move_entity(agent, action)
+                reward = -cost
+                agent.energy -= cost
+                agent.age += 1
+                if not success: reward -= cfg.WALL_HIT_PENALTY
 
-            # Ruch Agenta
-            move_ok = world.move_entity(agent_entity, agent_action)
-            if agent_action == 4:
-                agent_entity.energy -= cfg.IDLE_COST
-                reward_agent -= cfg.IDLE_COST
-            else:
-                agent_entity.energy -= cfg.MOVE_COST
-                reward_agent -= cfg.MOVE_COST
-                if not move_ok:
-                    reward_agent -= cfg.WALL_HIT_PENALTY
+                # Guidance calc
+                min_food_dist_after = float('inf')
+                for fx, fy in world.food:
+                    dx, dy = get_toroidal_distance(agent.x, agent.y, fx, fy, cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
+                    d = math.sqrt(dx * dx + dy * dy)
+                    if d < min_food_dist_after: min_food_dist_after = d
+                diff = min_food_dist - min_food_dist_after
+                if diff > 0:
+                    reward += diff * 3.0
+                else:
+                    reward += diff * 4.5
 
-            # Ruch Drapieżników
-            for p in world.get_alive_predators():
-                p_act = predator_actions.get(p.id)
-                if p_act is not None:
-                    dist_to_agent_before = np.linalg.norm(p.last_state[0:2])
-                    p_move_ok = world.move_entity(p, p_act)
-                    p_next_state_temp = get_predator_state(p, world)
-                    dist_to_agent_after = np.linalg.norm(p_next_state_temp[0:2])
+                if (agent.x, agent.y) in world.food:
+                    agent.energy += cfg.EAT_GAIN
+                    agent.food_eaten_count += 1
+                    world.food.remove((agent.x, agent.y))
+                    world.spawn_food(1)
+                    reward += 300
 
-                    if dist_to_agent_after < dist_to_agent_before:
-                        rewards_predator[p.id] += 0.5
-                    if p_act == 4:
-                        rewards_predator[p.id] -= 0.5
-                    else:
-                        rewards_predator[p.id] -= 0.1
-                    if not p_move_ok:
-                        rewards_predator[p.id] -= 1.0
+                if agent.age > cfg.MAX_AGE:
+                    agent.is_alive = False
+                    reward -= 100
+                if agent.energy <= 0:
+                    agent.is_alive = False
+                    reward -= 500
 
-            # --- 4. LOGIKA PO RUCHU (GUIDANCE REWARD) ---
-            dist_to_food_after = float('inf')
-            for (fx, fy) in world.food_positions:
-                dx, dy = get_toroidal_distance(agent_entity.x, agent_entity.y, fx, fy, cfg.GRID_WIDTH, cfg.GRID_HEIGHT)
-                d = math.sqrt(dx * dx + dy * dy)
-                if d < dist_to_food_after:
-                    dist_to_food_after = d
+                ep_reward_pop_a += reward
+                next_state = get_agent_state(agent, world)
+                done = not agent.is_alive
+                agent_brain.memory.push(state, action_tensor, reward, next_state, done)
 
-            dist_diff = dist_to_food_before - dist_to_food_after
-            SHAPING_FACTOR = 3.0
-
-            if dist_diff > 0:
-                reward_agent += dist_diff * SHAPING_FACTOR
-            elif dist_diff < 0:
-                reward_agent += dist_diff * SHAPING_FACTOR * 1.5
-
-            # --- OBSŁUGA JEDZENIA ---
-            if (agent_entity.x, agent_entity.y) in world.food_positions:
-                agent_entity.energy += cfg.EAT_GAIN
-                agent_entity.food_eaten_count += 1
-                agent_entity.max_energy += cfg.MAX_ENERGY_GAIN_PER_FOOD
-                world.food_positions.remove((agent_entity.x, agent_entity.y))
-                world.spawn_food(1)
-                reward_agent += 500
-                pass
-
-            # --- OBSŁUGA WALKI ---
-            agent_was_alive = agent_entity.is_alive
-            for p in world.get_alive_predators():
-                if p.x == agent_entity.x and p.y == agent_entity.y:
-                    predator_was_alive = p.is_alive
-                    world.handle_fight(p, agent_entity)
-
-                    if not agent_entity.is_alive:
-                        rewards_predator[p.id] += 500
-                        break
-                    if not p.is_alive and predator_was_alive:
-                        reward_agent += 300
-                        rewards_predator[p.id] -= 300
-
-            if agent_entity.energy <= 0:
-                agent_entity.is_alive = False
-
-            done = not agent_entity.is_alive
-            if done and agent_was_alive:
-                reward_agent -= 1000
-
-            # Pobranie nowego stanu
-            agent_next_state = get_agent_state(agent_entity, world)
-
-            # Zapisanie pamięci dla drapieżników
-            for p in world.get_alive_predators():
-                if p.last_state is not None:
-                    p_next_state = get_predator_state(p, world)
-                    p_done = not p.is_alive or done
-                    predator_brain.memory.push(p.last_state, p.last_action, rewards_predator[p.id], p_next_state,
-                                               p_done)
-                    episode_predator_reward += rewards_predator[p.id]
-
-            # Respawn drapieżników
-            if cfg.PREDATOR_RESPAWN:
-                alive_predators = world.get_alive_predators()
-                missing = cfg.PREDATOR_COUNT - len(alive_predators)
-                if missing > 0:
-                    world.spawn_predators(missing)
-                world.predators = world.get_alive_predators()
-
-            # Zapisanie pamięci dla Agenta
-            agent_brain.memory.push(agent_state, agent_action_tensor, reward_agent, agent_next_state, done)
-            episode_agent_reward += reward_agent
-
-            agent_state = agent_next_state
-
-            # Optymalizacja sieci
             agent_brain.optimize_model()
+
+            # === PREDATOR PHASE ===
+            alive_preds = world.get_alive_predators()
+            pred_actions = {}
+            for p in alive_preds:
+                s_p = get_predator_state(p, world)
+                act_p_tens = predator_brain.select_action(s_p)
+                p.last_state = s_p
+                p.last_action = act_p_tens
+                pred_actions[p.id] = act_p_tens.item()
+
+            for p in alive_preds:
+                act = pred_actions.get(p.id)
+                succ, c = world.move_entity(p, act)
+                rew_p = -c  # Cost of living/moving
+                p.energy -= c
+                p.age += 1
+
+                if not succ: rew_p -= 1.0
+
+                # Interactions
+                for a in world.get_alive_agents():
+                    if a.x == p.x and a.y == p.y:
+                        world.handle_fight(p, a)
+                        if not a.is_alive:
+                            rew_p += 500
+
+                # Starvation / Old Age
+                if p.age > cfg.PREDATOR_MAX_AGE:
+                    p.is_alive = False
+                    rew_p -= 100
+                if p.energy <= 0:
+                    p.is_alive = False
+                    rew_p -= 500
+
+                ep_reward_pop_p += rew_p
+                ns_p = get_predator_state(p, world)
+                pd = not p.is_alive
+                predator_brain.memory.push(p.last_state, p.last_action, rew_p, ns_p, pd)
+
             predator_brain.optimize_model()
 
-            draw_world(screen, world, agent_entity)
-            gen_text = font.render(f"Epizod: {episode + 1}/{cfg.NUM_EPISODES}", True, (255, 255, 255))
-            reward_text = font.render(f"Wynik: {episode_agent_reward:.0f}", True, (255, 255, 255))
+            # === WORLD UPDATES ===
+            world.handle_reproduction()
+            world.update_scents()
 
-            # Info o Early Stopping
-            es_text = font.render(
-                f"Patience: {patience_counter}/{cfg.EARLY_STOPPING_PATIENCE} | Best Avg: {best_moving_avg:.0f}", True,
-                (200, 200, 255))
+            # EMERGENCY RESPAWN (Safety net for extinction)
+            if cfg.PREDATOR_RESPAWN:
+                if len(world.get_alive_predators()) < 2:
+                    world.spawn_predators(2)
 
-            screen.blit(gen_text, (5, 5))
-            screen.blit(reward_text, (5, 35))
-            screen.blit(es_text, (5, 65))
+            # Draw
+            draw_world(screen, world)
+            pop_a = len(world.get_alive_agents())
+            pop_p = len(world.get_alive_predators())
+            txt = font.render(f"Ep:{episode + 1} | Ag:{pop_a} Pr:{pop_p}", True, (255, 255, 255))
+            screen.blit(txt, (5, 5))
             pygame.display.flip()
 
-            if done:
-                break
-
-        # --- KONIEC EPIZODU ---
-        total_agent_rewards.append(episode_agent_reward)
-        if len(world.predators) > 0:
-            total_predator_rewards.append(episode_predator_reward / len(world.predators))
-        else:
-            total_predator_rewards.append(episode_predator_reward)
-
-        avg_agent_reward = 0.0
-        avg_pred_reward = 0.0
-
-        if episode >= 10:
-            avg_agent_reward = sum(total_agent_rewards[-10:]) / 10
-            avg_pred_reward = sum(total_predator_rewards[-10:]) / 10
-            # --- POPRAWIONA LINIA PONIŻEJ ---
-            print(
-                f"Epizod {episode + 1}: Agent: {episode_agent_reward:.0f} (Śr10: {avg_agent_reward:.2f}) | Predatorzy (Śr10): {avg_pred_reward:.2f}")
-        else:
-            print(f"Epizod {episode + 1}: Agent: {episode_agent_reward:.0f}")
-
-        dopisz_log_wynikow(sciezka_logu, episode + 1, episode_agent_reward, avg_agent_reward,
-                           agent_entity.food_eaten_count, agent_entity.predators_killed)
+        # End Episode
+        total_agent_rewards.append(ep_reward_pop_a)
+        avg_10 = sum(total_agent_rewards[-10:]) / 10 if len(total_agent_rewards) >= 10 else 0
+        print(f"Ep {episode + 1}: Agents={ep_reward_pop_a:.0f} | Preds={ep_reward_pop_p:.0f}")
+        dopisz_log_wynikow(cfg.LOG_FILE, episode + 1, ep_reward_pop_a, len(world.get_alive_agents()), ep_reward_pop_p,
+                           len(world.get_alive_predators()))
 
         if episode % 10 == 0:
             agent_brain.target_net.load_state_dict(agent_brain.policy_net.state_dict())
             predator_brain.target_net.load_state_dict(predator_brain.policy_net.state_dict())
 
-        if episode % 100 == 0 and episode > 0:
+        # Early Stopping
+        if cfg.EARLY_STOPPING_ENABLED and episode >= cfg.EARLY_STOPPING_MIN_EPISODES:
+            curr_avg = sum(total_agent_rewards[-cfg.EARLY_STOPPING_WINDOW:]) / cfg.EARLY_STOPPING_WINDOW
+            if curr_avg > best_avg:
+                best_avg = curr_avg
+                patience = 0
+                torch.save(agent_brain.policy_net.state_dict(), os.path.join(cfg.MODEL_SAVE_DIR, "best_ecosystem.pth"))
+                print(f"NEW RECORD: {best_avg:.2f}")
+            else:
+                patience += 1
+                if patience >= cfg.EARLY_STOPPING_PATIENCE:
+                    print("EARLY STOPPING.");
+                    break
+
+        if episode % 50 == 0:
             torch.save(agent_brain.policy_net.state_dict(), os.path.join(cfg.MODEL_SAVE_DIR, f"agent_ep_{episode}.pth"))
             torch.save(predator_brain.policy_net.state_dict(),
                        os.path.join(cfg.MODEL_SAVE_DIR, f"predator_ep_{episode}.pth"))
-            print("Zapisano modele okresowe.")
-
-        # --- LOGIKA EARLY STOPPING ---
-        if cfg.EARLY_STOPPING_ENABLED and episode >= cfg.EARLY_STOPPING_MIN_EPISODES:
-            # Oblicz średnią z ostatnich X epizodów (zdefiniowane w configu jako WINDOW)
-            window_size = getattr(cfg, 'EARLY_STOPPING_WINDOW', 50)
-            if len(total_agent_rewards) >= window_size:
-                current_moving_avg = sum(total_agent_rewards[-window_size:]) / window_size
-
-                if current_moving_avg > best_moving_avg:
-                    best_moving_avg = current_moving_avg
-                    patience_counter = 0  # Reset licznika, bo jest poprawa
-                    # Zapisujemy "Najlepszy Model W Historii"
-                    torch.save(agent_brain.policy_net.state_dict(),
-                               os.path.join(cfg.MODEL_SAVE_DIR, "best_model_early_stopping.pth"))
-                    print(
-                        f"!!! NOWY REKORD ŚREDNIEJ ({window_size} ep): {best_moving_avg:.2f}. Zapisano best_model_early_stopping.pth !!!")
-                else:
-                    patience_counter += 1
-                    print(
-                        f"Brak poprawy średniej ({current_moving_avg:.2f} <= {best_moving_avg:.2f}). Cierpliwość: {patience_counter}/{cfg.EARLY_STOPPING_PATIENCE}")
-
-            if patience_counter >= cfg.EARLY_STOPPING_PATIENCE:
-                print("\n--- EARLY STOPPING ZADZIAŁAŁ ---")
-                print(
-                    f"Brak poprawy od {cfg.EARLY_STOPPING_PATIENCE} epizodów. Najlepsza średnia: {best_moving_avg:.2f}")
-                print("Zatrzymuję trening, aby uniknąć overfittingu / degradacji.")
-                break
 
     pygame.quit()
-    print("\nSymulacja zakończona.")
 
 
 if __name__ == "__main__":
