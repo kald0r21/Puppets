@@ -41,6 +41,9 @@ class MainWindow(QMainWindow):
         self.menu_actions = {}
         self.menus = {}
 
+        # Cache configs for each method to preserve user settings
+        self.method_configs = {}
+
         # Initialize UI
         self.init_ui()
 
@@ -233,17 +236,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please stop training before changing method")
             return
 
-        # Load default config for new method
-        new_config = self.config_manager.create_default_config(method)
-
-        # Preserve user-customized simulation and visualization settings
+        # Save current method config before switching
         if self.current_config:
-            # Keep customized simulation parameters
-            if 'simulation' in self.current_config:
-                new_config['simulation'] = self.current_config['simulation']
-            # Keep customized visualization parameters
-            if 'visualization' in self.current_config:
-                new_config['visualization'] = self.current_config['visualization']
+            old_method = self.current_config.get('method')
+            if old_method:
+                self.method_configs[old_method] = self.current_config
+
+        # Check if we have a cached config for this method
+        if method in self.method_configs:
+            # Restore previously customized config for this method
+            new_config = self.method_configs[method]
+        else:
+            # Load default config for new method
+            new_config = self.config_manager.create_default_config(method)
+
+            # Preserve user-customized simulation and visualization settings
+            if self.current_config:
+                # Keep customized simulation parameters
+                if 'simulation' in self.current_config:
+                    new_config['simulation'] = self.current_config['simulation']
+                # Keep customized visualization parameters
+                if 'visualization' in self.current_config:
+                    new_config['visualization'] = self.current_config['visualization']
 
         self.current_config = new_config
         self.control_panel.set_config(self.current_config)

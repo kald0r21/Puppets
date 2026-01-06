@@ -136,23 +136,27 @@ class CNNBrain(nn.Module, BrainBase):
         Returns:
             CNNBrain: Child brain
         """
+        # Create child on CPU to avoid device mismatch during crossover
         child = CNNBrain(
             parent1.map_size,
             parent1.num_channels,
             parent1.num_actions,
-            parent1.device
+            device='cpu'
         )
 
+        # Move all states to CPU for crossover operations
         child_state = child.state_dict()
         p1_state = {k: v.cpu() for k, v in parent1.state_dict().items()}
         p2_state = {k: v.cpu() for k, v in parent2.state_dict().items()}
 
+        # Perform crossover on CPU
         for key in p1_state:
             mask = torch.rand_like(p1_state[key]) > 0.5
             child_state[key].copy_(p1_state[key])
             child_state[key][~mask] = p2_state[key][~mask]
 
         child.load_state_dict(child_state)
+        # Move child to parent's device after crossover
         child.to(parent1.device)
         return child
 
