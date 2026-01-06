@@ -181,6 +181,19 @@ class ParamEditor(QWidget):
 
         group.setLayout(form)
         layout.addWidget(group)
+
+        # Early stopping group
+        early_stop_group = QGroupBox("Early Stopping")
+        early_stop_form = QFormLayout()
+
+        self.add_checkbox(early_stop_form, 'ga', 'early_stopping_enabled', "Enable Early Stopping:",
+                         ga_config.get('early_stopping_enabled', True))
+        self.add_spinbox(early_stop_form, 'ga', 'early_stopping_patience', "Patience (generations):",
+                        ga_config.get('early_stopping_patience', 20), 1, 1000)
+
+        early_stop_group.setLayout(early_stop_form)
+        layout.addWidget(early_stop_group)
+
         layout.addStretch()
 
         scroll.setWidget(content)
@@ -214,6 +227,19 @@ class ParamEditor(QWidget):
 
         group.setLayout(form)
         layout.addWidget(group)
+
+        # Early stopping group
+        early_stop_group = QGroupBox("Early Stopping")
+        early_stop_form = QFormLayout()
+
+        self.add_checkbox(early_stop_form, 'cnn', 'early_stopping_enabled', "Enable Early Stopping:",
+                         cnn_config.get('early_stopping_enabled', True))
+        self.add_spinbox(early_stop_form, 'cnn', 'early_stopping_patience', "Patience (generations):",
+                        cnn_config.get('early_stopping_patience', 10), 1, 1000)
+
+        early_stop_group.setLayout(early_stop_form)
+        layout.addWidget(early_stop_group)
+
         layout.addStretch()
 
         scroll.setWidget(content)
@@ -280,6 +306,18 @@ class ParamEditor(QWidget):
 
         predator_group.setLayout(predator_form)
         main_layout.addWidget(predator_group)
+
+        # Early stopping group
+        early_stop_group = QGroupBox("Early Stopping")
+        early_stop_form = QFormLayout()
+
+        self.add_checkbox(early_stop_form, 'dqn', 'early_stopping_enabled', "Enable Early Stopping:",
+                         dqn_config.get('early_stopping_enabled', True))
+        self.add_spinbox(early_stop_form, 'dqn', 'early_stopping_patience', "Patience (episodes):",
+                        dqn_config.get('early_stopping_patience', 50), 1, 1000)
+
+        early_stop_group.setLayout(early_stop_form)
+        main_layout.addWidget(early_stop_group)
 
         main_layout.addStretch()
         scroll.setWidget(content)
