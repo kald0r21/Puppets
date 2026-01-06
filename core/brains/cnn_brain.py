@@ -120,8 +120,10 @@ class CNNBrain(nn.Module, BrainBase):
             CNNBrain: Cloned brain
         """
         clone = CNNBrain(self.map_size, self.num_channels, self.num_actions, self.device)
-        clone.load_state_dict(self.state_dict())
-        clone.to(self.device)
+        # Explicitly move state_dict to target device to avoid mixed device issues
+        state_dict = self.state_dict()
+        # Map all tensors to clone's device
+        clone.load_state_dict({k: v.to(clone.device) for k, v in state_dict.items()})
         return clone
 
     @staticmethod
@@ -145,19 +147,30 @@ class CNNBrain(nn.Module, BrainBase):
         )
 
         # Move all states to CPU for crossover operations
-        child_state = child.state_dict()
         p1_state = {k: v.cpu() for k, v in parent1.state_dict().items()}
         p2_state = {k: v.cpu() for k, v in parent2.state_dict().items()}
 
         # Perform crossover on CPU
+        child_state = {}
         for key in p1_state:
             mask = torch.rand_like(p1_state[key]) > 0.5
-            child_state[key].copy_(p1_state[key])
+            # Start with parent1's weights
+            child_state[key] = p1_state[key].clone()
+            # Apply parent2's weights where mask is False
             child_state[key][~mask] = p2_state[key][~mask]
 
+        # Load crossovered state
         child.load_state_dict(child_state)
-        # Move child to parent's device after crossover
-        child.to(parent1.device)
+
+        # Move child to parent's device
+        target_device = parent1.device
+        child.to(target_device)
+        # Ensure all parameters are on target device
+        for param in child.parameters():
+            param.data = param.data.to(target_device)
+        for buffer in child.buffers():
+            buffer.data = buffer.data.to(target_device)
+
         return child
 
     def mutate(self, mutation_rate, mutation_strength):
