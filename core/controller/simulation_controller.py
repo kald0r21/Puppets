@@ -157,15 +157,16 @@ class SimulationController(QObject if PYQT_AVAILABLE else object):
             traceback.print_exc()
 
     def _auto_save(self, metrics: dict):
-        """Auto-save model periodically."""
-        # Determine step number (generation or episode)
+        """Auto-save model when there's improvement."""
+        # Check if this is a new best - trainers now only save best models
+        # We save when best_fitness or best_avg_reward improves
         step = metrics.get('generation', metrics.get('episode', 0))
 
-        # Save at intervals
+        # Save only if we have a best brain/model
         if step > 0 and step % self.save_interval == 0:
             try:
                 self.trainer.save_checkpoint(self.save_dir)
-                self._emit_status(f"Auto-saved at step {step}")
+                self._emit_status(f"Saved best model at step {step}")
             except Exception as e:
                 self._emit_error(f"Auto-save failed: {e}")
 

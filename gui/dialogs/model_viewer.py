@@ -169,27 +169,79 @@ class ModelViewer(QDialog):
         model_path = self.model_combo.currentData()
 
         try:
+            import json
+            import torch
+
+            # Try to load metadata file
+            metadata_path = model_path.replace('.pth', '_metadata.json').replace('.npz', '_metadata.json')
+            metadata = None
+
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+
             # Create appropriate brain based on method
             if self.method == 'GA':
-                self.brain = NumpyBrain(11, [16, 16], 5)
+                if metadata:
+                    input_size = metadata.get('input_size', 11)
+                    hidden_layers = metadata.get('hidden_layers', [16, 16])
+                    output_size = metadata.get('output_size', 5)
+                else:
+                    # Fallback to defaults
+                    input_size = 11
+                    hidden_layers = [16, 16]
+                    output_size = 5
+
+                self.brain = NumpyBrain(input_size, hidden_layers, output_size)
                 self.brain.load(model_path)
+
             elif self.method == 'CNN':
-                import torch
-                self.brain = CNNBrain(7, 3, 5, device='cpu')
+                if metadata:
+                    map_size = metadata.get('map_size', 7)
+                    num_channels = metadata.get('num_channels', 3)
+                    num_actions = metadata.get('num_actions', 5)
+                else:
+                    # Fallback to defaults
+                    map_size = 7
+                    num_channels = 3
+                    num_actions = 5
+
+                self.brain = CNNBrain(map_size, num_channels, num_actions, device='cpu')
                 self.brain.load(model_path)
+
             elif self.method == 'DQN':
+                if metadata:
+                    input_size = metadata.get('agent_input_size', 12)
+                    output_size = metadata.get('agent_output_size', 5)
+                    hidden_layers = metadata.get('agent_hidden_layers', [64, 32])
+                else:
+                    # Fallback to defaults
+                    input_size = 12
+                    output_size = 5
+                    hidden_layers = [64, 32]
+
                 self.brain = DQNBrain(
-                    12, 5, [64, 32], 0.001, 50000, 128, 0.99,
+                    input_size, output_size, hidden_layers,
+                    0.001, 50000, 128, 0.99,
                     0.9, 0.05, 30000, device='cpu'
                 )
                 self.brain.load(model_path)
 
-            self.status_label.setText("Model Loaded")
+            status_msg = "Model Loaded"
+            if metadata:
+                if 'best_fitness' in metadata:
+                    status_msg += f" (Fitness: {int(metadata['best_fitness'])})"
+                elif 'best_avg_reward' in metadata:
+                    status_msg += f" (Reward: {int(metadata['best_avg_reward'])})"
+
+            self.status_label.setText(status_msg)
             self.status_label.setStyleSheet("color: blue; font-weight: bold;")
 
         except Exception as e:
             self.status_label.setText(f"Load Failed: {e}")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
+            import traceback
+            traceback.print_exc()
 
     def start_test(self):
         """Start testing the model."""

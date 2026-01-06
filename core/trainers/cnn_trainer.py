@@ -42,6 +42,7 @@ class CNNTrainer(TrainerBase):
         # Best brain tracker
         self.best_brain = None
         self.best_fitness = -float('inf')
+        self.best_brain_path = None
 
         # Metrics
         self.fitness_history = []
@@ -210,6 +211,9 @@ class CNNTrainer(TrainerBase):
         self.fitness_history.append(best_fitness)
         self.avg_fitness_history.append(avg_fitness)
 
+        # Check early stopping
+        self.check_early_stopping(best_fitness, self.config['cnn'])
+
         # Evolution
         new_population = []
 
@@ -256,9 +260,32 @@ class CNNTrainer(TrainerBase):
         }
 
     def save_checkpoint(self, path):
-        """Save best brain."""
+        """Save best brain only."""
+        import os
         if self.best_brain:
-            self.best_brain.save(f"{path}/best_brain_gen_{self.current_generation}.pth")
+            # Remove old best brain if exists
+            if self.best_brain_path and os.path.exists(self.best_brain_path):
+                os.remove(self.best_brain_path)
+
+            # Save new best brain with fitness in filename
+            filename = f"cnn_best_fitness_{int(self.best_fitness)}.pth"
+            self.best_brain_path = os.path.join(path, filename)
+            self.best_brain.save(self.best_brain_path)
+
+            # Also save metadata
+            import json
+            metadata = {
+                'method': 'CNN',
+                'generation': self.current_generation,
+                'best_fitness': self.best_fitness,
+                'map_size': self.map_size,
+                'num_channels': 3,
+                'num_actions': 5,
+                'config': self.config['cnn']
+            }
+            metadata_path = os.path.join(path, filename.replace('.pth', '_metadata.json'))
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
 
     def load_checkpoint(self, path):
         """Load checkpoint."""
@@ -272,6 +299,10 @@ class CNNTrainer(TrainerBase):
         self.avg_fitness_history = []
         self.best_brain = None
         self.best_fitness = -float('inf')
+        self.best_brain_path = None
+        self.best_metric_value = -float('inf')
+        self.steps_without_improvement = 0
+        self.early_stopping_triggered = False
 
     def get_best_brain(self):
         """Get best brain."""

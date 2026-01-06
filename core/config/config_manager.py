@@ -207,7 +207,9 @@ class ConfigManager:
                 "mutation_rate": 0.05,
                 "mutation_strength": 0.5,
                 "elitism_count": 10,
-                "hidden_layers": [16, 16]
+                "hidden_layers": [16, 16],
+                "early_stopping_patience": 20,
+                "early_stopping_enabled": True
             }
         elif method == "CNN":
             base_config["cnn"] = {
@@ -222,7 +224,9 @@ class ConfigManager:
                 "vision_upgrades": {
                     "2": 2,
                     "5": 3
-                }
+                },
+                "early_stopping_patience": 10,
+                "early_stopping_enabled": True
             }
             base_config["simulation"]["start_perception_radius"] = 1
         elif method == "DQN":
@@ -243,7 +247,9 @@ class ConfigManager:
                 "predator_eps_start": 0.9,
                 "predator_eps_end": 0.05,
                 "predator_eps_decay": 20000,
-                "gamma": 0.99
+                "gamma": 0.99,
+                "early_stopping_patience": 50,
+                "early_stopping_enabled": True
             }
 
         return base_config

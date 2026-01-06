@@ -62,6 +62,11 @@ class DQNTrainer(TrainerBase):
         self.reward_history = []
         self.avg_reward_history = []
 
+        # Best model tracking
+        self.best_avg_reward = -float('inf')
+        self.best_agent_brain_path = None
+        self.best_predator_brain_path = None
+
     def get_agent_state(self, agent):
         """Get state representation for agent."""
         inputs = [agent.energy / 1000.0]
@@ -337,6 +342,14 @@ class DQNTrainer(TrainerBase):
         else:
             self.avg_reward_history.append(episode_reward)
 
+        # Track best model
+        current_avg_reward = self.avg_reward_history[-1]
+        if current_avg_reward > self.best_avg_reward:
+            self.best_avg_reward = current_avg_reward
+
+        # Check early stopping
+        self.check_early_stopping(current_avg_reward, self.config['dqn'])
+
         return {
             'episode': self.current_episode,
             'reward': episode_reward,
@@ -354,9 +367,42 @@ class DQNTrainer(TrainerBase):
         }
 
     def save_checkpoint(self, path):
-        """Save both agent and predator brains."""
-        self.agent_brain.save(f"{path}/agent_ep_{self.current_episode}.pth")
-        self.predator_brain.save(f"{path}/predator_ep_{self.current_episode}.pth")
+        """Save best agent and predator brains only."""
+        import os
+        import json
+
+        # Remove old best brains if they exist
+        if self.best_agent_brain_path and os.path.exists(self.best_agent_brain_path):
+            os.remove(self.best_agent_brain_path)
+        if self.best_predator_brain_path and os.path.exists(self.best_predator_brain_path):
+            os.remove(self.best_predator_brain_path)
+
+        # Save new best brains with reward in filename
+        agent_filename = f"dqn_agent_best_reward_{int(self.best_avg_reward)}.pth"
+        predator_filename = f"dqn_predator_best_reward_{int(self.best_avg_reward)}.pth"
+
+        self.best_agent_brain_path = os.path.join(path, agent_filename)
+        self.best_predator_brain_path = os.path.join(path, predator_filename)
+
+        self.agent_brain.save(self.best_agent_brain_path)
+        self.predator_brain.save(self.best_predator_brain_path)
+
+        # Save metadata
+        metadata = {
+            'method': 'DQN',
+            'episode': self.current_episode,
+            'best_avg_reward': self.best_avg_reward,
+            'agent_input_size': 12,
+            'agent_output_size': 5,
+            'agent_hidden_layers': self.config['dqn']['agent_hidden_layers'],
+            'predator_input_size': 9,
+            'predator_output_size': 5,
+            'predator_hidden_layers': self.config['dqn']['predator_hidden_layers'],
+            'config': self.config['dqn']
+        }
+        metadata_path = os.path.join(path, agent_filename.replace('.pth', '_metadata.json'))
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
 
     def load_checkpoint(self, path):
         """Load checkpoint."""
@@ -368,6 +414,12 @@ class DQNTrainer(TrainerBase):
         self.current_episode = 0
         self.reward_history = []
         self.avg_reward_history = []
+        self.best_avg_reward = -float('inf')
+        self.best_agent_brain_path = None
+        self.best_predator_brain_path = None
+        self.best_metric_value = -float('inf')
+        self.steps_without_improvement = 0
+        self.early_stopping_triggered = False
 
     def get_best_brain(self):
         """Get agent brain."""
