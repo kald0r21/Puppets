@@ -233,7 +233,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please stop training before changing method")
             return
 
-        self.load_default_config(method)
+        # Load default config for new method
+        new_config = self.config_manager.create_default_config(method)
+
+        # Preserve user-customized simulation and visualization settings
+        if self.current_config:
+            # Keep customized simulation parameters
+            if 'simulation' in self.current_config:
+                new_config['simulation'] = self.current_config['simulation']
+            # Keep customized visualization parameters
+            if 'visualization' in self.current_config:
+                new_config['visualization'] = self.current_config['visualization']
+
+        self.current_config = new_config
+        self.control_panel.set_config(self.current_config)
+        self.statusBar().showMessage(tr('message.loaded_config', method=method))
 
     @pyqtSlot()
     def on_start(self):
@@ -362,6 +376,7 @@ class MainWindow(QMainWindow):
     def on_edit_parameters(self):
         """Open advanced parameter editor."""
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QDialogButtonBox
+        import copy
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Advanced Parameters")
@@ -369,10 +384,11 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout(dialog)
 
-        # Create parameter editor
+        # Create parameter editor with a COPY of config
+        # This way Cancel will discard changes
+        config_copy = copy.deepcopy(self.current_config)
         param_editor = ParamEditor()
-        param_editor.set_config(self.current_config)
-        # Note: param_editor updates self.current_config directly, no need to connect signal
+        param_editor.set_config(config_copy)
         layout.addWidget(param_editor)
 
         # Add button box
@@ -383,9 +399,11 @@ class MainWindow(QMainWindow):
 
         result = dialog.exec_()
 
-        # If accepted, update control panel with new config
+        # If accepted, apply the modified config
         if result == QDialog.Accepted:
+            self.current_config = config_copy
             self.control_panel.set_config(self.current_config)
+            self.statusBar().showMessage("Parameters updated")
 
     def on_test_model(self):
         """Open model viewer for testing trained models."""
