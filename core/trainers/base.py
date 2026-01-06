@@ -24,6 +24,11 @@ class TrainerBase(ABC):
         self.is_training = False
         self.metrics = {}
 
+        # Early stopping
+        self.best_metric_value = -float('inf')
+        self.steps_without_improvement = 0
+        self.early_stopping_triggered = False
+
     @abstractmethod
     def train_step(self) -> Dict[str, Any]:
         """
@@ -98,8 +103,44 @@ class TrainerBase(ABC):
         Returns:
             bool: True if training should stop
         """
+        # Check early stopping
+        if self.early_stopping_triggered:
+            return True
+
+        # Check max iterations
         if hasattr(self, 'max_generations'):
             return self.current_generation >= self.max_generations
         if hasattr(self, 'max_episodes'):
             return self.current_episode >= self.max_episodes
+        return False
+
+    def check_early_stopping(self, current_metric: float, method_config: dict) -> bool:
+        """
+        Check if early stopping criteria is met.
+
+        Args:
+            current_metric: Current metric value to track (higher is better)
+            method_config: Method-specific config (ga, cnn, or dqn)
+
+        Returns:
+            bool: True if early stopping triggered
+        """
+        if not method_config.get('early_stopping_enabled', False):
+            return False
+
+        patience = method_config.get('early_stopping_patience', 20)
+
+        # Check if we have improvement
+        if current_metric > self.best_metric_value:
+            self.best_metric_value = current_metric
+            self.steps_without_improvement = 0
+            return False
+        else:
+            self.steps_without_improvement += 1
+
+        # Check if patience exceeded
+        if self.steps_without_improvement >= patience:
+            self.early_stopping_triggered = True
+            return True
+
         return False
